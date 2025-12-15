@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirWatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        gray: {
+                            750: '#2d3748',
+                            850: '#1a202c',
+                            950: '#0d1117',
+                        }
+                    },
+                    boxShadow: {
+                        'card': '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15)',
+                        'card-hover': '0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #111827; /* Gray 900 */
+        }
+        /* Hide scrollbar for clean modal look */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Markdown-like styles for AI response (Dark Mode) */
+        .ai-content h3 { font-size: 1.125rem; font-weight: 700; margin-bottom: 0.5rem; color: #f3f4f6; }
+        .ai-content p { margin-bottom: 0.75rem; line-height: 1.6; color: #d1d5db; }
+        .ai-content ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 1rem; color: #d1d5db; }
+        .ai-content li { margin-bottom: 0.25rem; }
+        .ai-content strong { font-weight: 600; color: #f9fafb; }
+        
+        /* Map specific overrides */
+        .leaflet-popup-content-wrapper {
+            background-color: #1f2937;
+            color: #f3f4f6;
+            border-radius: 0.75rem;
+            border: 1px solid #374151;
+        }
+        .leaflet-popup-tip {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            border-top: none;
+            border-left: none;
+        }
+        .leaflet-container {
+            background: #111827;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0"
+  }
+}
+</script>
+</head>
+<body class="text-gray-100 min-h-screen flex flex-col bg-gray-900">
+
+    <!-- HEADER -->
+    <header class="bg-gray-800 shadow-md sticky top-0 z-40 border-b border-gray-700">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row gap-4 md:gap-0 justify-between items-center">
+            <div class="flex items-center gap-3 w-full md:w-auto">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-900/50 shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.5 3H14.5C16.5 3 18.5 4 19.5 6M4 14H18C19.5 14 21 12.5 21 10.5C21 8.5 19.5 7 18 7H6C4 7 2.5 8.5 2.5 10.5C2.5 12.5 4 14 6 14ZM5 18H15C16.5 18 18 19.5 18 21.5" />
+                    </svg>
+                </div>
+                <div class="flex flex-col">
+                    <h1 class="text-xl font-bold text-white leading-tight">AirWatch</h1>
+                    <p class="text-xs text-gray-400 font-medium">Air Quality & Weather Monitor</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
+                <!-- View Switcher -->
+                <div class="flex bg-gray-700 rounded-lg p-1 mr-2 shrink-0">
+                     <button id="view-grid-btn" class="px-3 py-1.5 rounded-md text-sm font-semibold bg-gray-600 text-white shadow-sm transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                        Grid
+                     </button>
+                     <button id="view-map-btn" class="px-3 py-1.5 rounded-md text-sm font-semibold text-gray-400 hover:text-white transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+                        Map
+                     </button>
+                </div>
+
+                <button id="compareBtn" class="hidden md:flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 hover:border-indigo-500 hover:text-indigo-400 transition-all text-sm font-semibold shadow-sm group whitespace-nowrap">
+                    <svg class="w-4 h-4 text-gray-500 group-hover:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Compare <span id="compareCount" class="hidden ml-1 px-1.5 py-0.5 text-[10px] bg-indigo-900 text-indigo-300 rounded-full border border-indigo-700">0</span>
+                </button>
+                <button id="refreshAllBtn" class="hidden md:flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 hover:border-gray-500 transition-all text-sm font-semibold shadow-sm whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Refresh
+                </button>
+                <button id="addCityBtn" class="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-700 text-white rounded-lg hover:opacity-90 transition-all text-sm font-semibold shadow-lg shadow-indigo-900/50 whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add City
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN GRID -->
+    <main class="max-w-7xl mx-auto px-6 py-8 flex-1 w-full flex flex-col">
+        <!-- Loader -->
+        <div id="loader" class="hidden w-full flex justify-center py-20">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
+        </div>
+
+        <!-- Grid View -->
+        <div id="cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in w-full">
+            <!-- Cards will be injected here -->
+        </div>
+
+        <!-- Map View -->
+        <div id="map-view" class="hidden w-full flex-1 min-h-[500px] h-[600px] rounded-2xl overflow-hidden shadow-2xl border border-gray-700 relative z-0 animate-fade-in">
+             <div id="map" class="w-full h-full bg-gray-800"></div>
+        </div>
+    </main>
+
+    <!-- ADD CITY MODAL -->
+    <div id="addModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50 transition-opacity opacity-0">
+        <div class="bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl transform scale-95 transition-transform duration-200 p-6 m-4 border border-gray-700">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-white">Add New City</h3>
+                <button id="closeAddModalBtn" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="relative">
+                <input type="text" id="cityInput" 
+                    class="block w-full pl-4 pr-3 py-3 border border-gray-600 rounded-xl leading-5 bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:bg-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out sm:text-sm" 
+                    placeholder="Search city (e.g., London, Tokyo)...">
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button id="cancelAddBtn" class="px-4 py-2 text-gray-300 hover:bg-gray-700 rounded-lg text-sm font-medium transition">Cancel</button>
+                <button id="confirmAddBtn" class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium shadow-lg shadow-indigo-900/50 transition">Search & Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- COMPARISON MODAL -->
+    <div id="compareModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50 transition-opacity opacity-0">
+        <div class="bg-gray-800 w-full max-w-5xl h-[90vh] md:h-auto rounded-2xl shadow-2xl transform scale-95 transition-transform duration-200 m-4 flex flex-col overflow-hidden border border-gray-700">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 sticky top-0 z-10">
+                <div>
+                    <h3 class="text-xl font-bold text-white">City Comparison</h3>
+                    <p class="text-sm text-gray-400">Comparing selected locations</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <!-- Tabs -->
+                    <div class="hidden sm:flex bg-gray-700 p-1 rounded-lg">
+                        <button id="tab-btn-table" class="px-4 py-1.5 rounded-md text-sm font-semibold bg-gray-600 text-white shadow-sm transition-all">Overview</button>
+                        <button id="tab-btn-charts" class="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-400 hover:text-gray-200 transition-all">Visuals</button>
+                        <button id="tab-btn-history" class="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-400 hover:text-gray-200 transition-all">History</button>
+                        <button id="tab-btn-insights" class="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-400 hover:text-purple-400 transition-all flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            AI Insights
+                        </button>
+                    </div>
+                    <button id="closeCompareModalBtn" class="text-gray-400 hover:text-white p-1">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6 overflow-y-auto bg-gray-900 flex-1">
+                <!-- Mobile Tab Switcher -->
+                <div class="sm:hidden flex mb-4 bg-gray-800 p-1 rounded-lg border border-gray-700">
+                    <button id="mob-tab-table" class="flex-1 py-2 text-sm font-semibold rounded bg-gray-700 text-white">Table</button>
+                    <button id="mob-tab-charts" class="flex-1 py-2 text-sm font-semibold text-gray-400">Charts</button>
+                    <button id="mob-tab-history" class="flex-1 py-2 text-sm font-semibold text-gray-400">History</button>
+                    <button id="mob-tab-insights" class="flex-1 py-2 text-sm font-semibold text-gray-400">AI</button>
+                </div>
+
+                <!-- Table View -->
+                <div id="compare-view-table" class="block animate-fade-in">
+                    <div class="bg-gray-800 rounded-xl shadow-sm border border-gray-700 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-700">
+                                <thead class="bg-gray-750">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">City</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">AQI</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Temperature</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Humidity</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="compareTableBody" class="bg-gray-800 divide-y divide-gray-700">
+                                    <!-- Rows injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart View -->
+                <div id="compare-view-charts" class="hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-700 col-span-1 lg:col-span-2">
+                            <h4 class="text-sm font-bold text-gray-300 mb-4 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                Air Quality Index (AQI)
+                            </h4>
+                            <div class="h-64"><canvas id="aqiChart"></canvas></div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-700">
+                            <h4 class="text-sm font-bold text-gray-300 mb-4 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                                Temperature (°C)
+                            </h4>
+                            <div class="h-64"><canvas id="tempChart"></canvas></div>
+                        </div>
+                        <div class="bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-700">
+                            <h4 class="text-sm font-bold text-gray-300 mb-4 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                Humidity (%)
+                            </h4>
+                            <div class="h-64"><canvas id="humChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History View -->
+                <div id="compare-view-history" class="hidden">
+                    <div class="bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-700">
+                        <div class="flex justify-between items-center mb-6">
+                            <h4 class="text-sm font-bold text-gray-300 flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                7-Day Air Quality History
+                            </h4>
+                            <span class="text-xs text-gray-500">Daily Average AQI (based on PM2.5)</span>
+                        </div>
+                        <div class="relative h-80 w-full">
+                            <canvas id="historyChart"></canvas>
+                            <div id="history-loading" class="absolute inset-0 flex items-center justify-center bg-gray-800/80 hidden">
+                                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Insights View -->
+                <div id="compare-view-insights" class="hidden">
+                    <div class="bg-gray-800 p-8 rounded-xl shadow-sm border border-gray-700 min-h-[400px]">
+                        <!-- Loading State -->
+                        <div id="ai-loading" class="hidden flex flex-col items-center justify-center py-12">
+                            <div class="relative w-16 h-16 mb-6">
+                                <div class="absolute inset-0 border-4 border-gray-600 rounded-full"></div>
+                                <div class="absolute inset-0 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin"></div>
+                                <div class="absolute inset-0 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                </div>
+                            </div>
+                            <h3 class="text-lg font-semibold text-white">Analyzing Environmental Data</h3>
+                            <p class="text-gray-400 mt-2 text-center max-w-sm">Gemini AI is comparing air quality metrics and generating health recommendations...</p>
+                        </div>
+                        
+                        <!-- Content State -->
+                        <div id="ai-result" class="hidden">
+                            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-700">
+                                <div class="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg text-white">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-white">Gemini Health Report</h2>
+                                    <p class="text-sm text-gray-400">AI-generated analysis based on real-time data</p>
+                                </div>
+                            </div>
+                            <div id="ai-content-body" class="ai-content prose max-w-none text-gray-300">
+                                <!-- AI Content Injected Here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    
+    <!-- SINGLE CITY HISTORY MODAL -->
+    <div id="cityHistoryModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50 transition-opacity opacity-0">
+        <div class="bg-gray-800 w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl transform scale-95 transition-transform duration-200 m-4 flex flex-col overflow-hidden border border-gray-700">
+            <div class="px-6 py-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 sticky top-0 z-10">
+                <div>
+                    <h3 id="historyModalTitle" class="text-xl font-bold text-white">City History</h3>
+                    <p class="text-sm text-gray-400">Historical air quality trends from 2015 - Present</p>
+                </div>
+                <button id="closeCityHistoryModalBtn" class="text-gray-400 hover:text-white p-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto bg-gray-900 flex-1 relative">
+                <div id="city-history-loading" class="absolute inset-0 flex items-center justify-center bg-gray-900 z-20">
+                    <div class="flex flex-col items-center">
+                         <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mb-3"></div>
+                         <p class="text-gray-400 text-sm">Fetching historical archives (2015-Present)...</p>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-700 h-full flex flex-col">
+                    <div class="flex-1 w-full min-h-0">
+                        <canvas id="cityHistoryChart"></canvas>
+                    </div>
+                    <div class="mt-4 text-center text-xs text-gray-500">
+                        Note: Data is aggregated into monthly averages for readability.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-auto py-6 text-center text-sm text-gray-600">
+        <p>© 2025 AirWatch. Data provided by OpenWeather. AI Analysis by Gemini.</p>
+    </footer>
+
+    <script type="module" src="./index.tsx"></script>
+</body>
+</html>
