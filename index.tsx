@@ -3,11 +3,19 @@ import { GoogleGenAI } from "@google/genai";
 declare const Chart: any;
 declare const L: any;
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const API_KEY = "bf57504e06985889868020dc567d8730";
-const DEFAULT_CITIES = ["Pune", "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai"];
+const OPENWEATHER_API_KEY = "bf57504e06985889868020dc567d8730";
 
-// State
+const DEFAULT_CITIES = [
+    "London", "Paris", "Berlin", "Madrid", "Rome", "Amsterdam", "New York", "San Francisco", "Los Angeles", "Chicago", "Tokyo", "Seoul", "Singapore", "Sydney", "Mumbai", "Delhi", "Dubai"
+];
+
+interface ForecastDay {
+    dayName: string;
+    temp: number;
+    icon: string;
+    description: string;
+}
+
 interface CityData {
   id: number;
   name: string;
@@ -20,6 +28,7 @@ interface CityData {
   windSpeed: number;
   windDeg: number;
   lastUpdated: Date;
+  forecast: ForecastDay[];
 }
 
 let cityData: Record<string, CityData> = {};
@@ -27,6 +36,9 @@ let selectedCities = new Set<string>();
 let currentView: 'grid' | 'map' = 'grid';
 let mapInstance: any = null;
 let mapMarkers: any[] = [];
+let isDarkMode = true;
+let currentlyViewingHistoryCity: CityData | null = null;
+let recentSearches: string[] = JSON.parse(localStorage.getItem('recent_searches') || '[]');
 
 // DOM Elements
 const cardsContainer = document.getElementById('cards')!;
@@ -39,127 +51,162 @@ const cityInput = document.getElementById('cityInput') as HTMLInputElement;
 const aiResultDiv = document.getElementById('ai-result')!;
 const aiLoadingDiv = document.getElementById('ai-loading')!;
 const aiContentBody = document.getElementById('ai-content-body')!;
+const recentSearchesContainer = document.getElementById('recentSearches')!;
+const recentList = document.getElementById('recentList')!;
 
 const viewGridBtn = document.getElementById('view-grid-btn')!;
 const viewMapBtn = document.getElementById('view-map-btn')!;
+const themeToggleBtn = document.getElementById('theme-toggle')!;
 
 // Chart Instances
 let aqiChartInstance: any = null;
 let tempChartInstance: any = null;
 let humChartInstance: any = null;
+let windChartInstance: any = null;
+let radarChartInstance: any = null;
 let historyChartInstance: any = null;
 let cityHistoryChartInstance: any = null;
 
-// --- Initialization ---
+// --- Helper Functions ---
+
+async function safeFetch(url: string) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error(`Fetch failed for URL: ${url}`, error);
+        throw error;
+    }
+}
+
+(window as any).toggleSelection = (cityName: string, isChecked: boolean) => {
+  if (isChecked) selectedCities.add(cityName);
+  else selectedCities.delete(cityName);
+  updateCompareButton();
+};
+
+(window as any).refreshCity = async (name: string) => {
+    const data = await fetchCityData(name);
+    if(data) {
+        cityData[name] = data;
+        render();
+        if (currentView === 'map') updateMapMarkers();
+    }
+};
+
+(window as any).removeCity = (name: string) => {
+    if(confirm(`Remove ${name} from your list?`)) {
+        delete cityData[name];
+        selectedCities.delete(name);
+        render();
+        if (currentView === 'map') updateMapMarkers();
+    }
+};
+
+(window as any).viewHistory = (name: string) => {
+    const data = cityData[name];
+    if (data) openCityHistory(data);
+};
+
+(window as any).selectRecent = (name: string) => {
+    cityInput.value = name;
+    recentSearchesContainer.classList.add('hidden');
+    handleAddCity();
+};
+
+function getWindDir(deg: number): string {
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const index = Math.round(deg / 45) % 8;
+  return directions[index];
+}
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') setTheme(false);
+    else setTheme(true);
+}
+
+function setTheme(dark: boolean) {
+    isDarkMode = dark;
+    const html = document.documentElement;
+    const darkIcon = document.getElementById('theme-icon-dark')!;
+    const lightIcon = document.getElementById('theme-icon-light')!;
+
+    if (dark) {
+        html.classList.add('dark');
+        darkIcon.classList.remove('hidden');
+        lightIcon.classList.add('hidden');
+        localStorage.setItem('theme', 'dark');
+    } else {
+        html.classList.remove('dark');
+        darkIcon.classList.add('hidden');
+        lightIcon.classList.remove('hidden');
+        localStorage.setItem('theme', 'light');
+    }
+
+    render();
+    if (!compareModal.classList.contains('hidden')) {
+        const activeTab = document.querySelector('[aria-selected="true"][id^="tab-btn-"]')?.id.replace('tab-btn-', '') as any;
+        if (activeTab === 'charts') buildCompareCharts();
+        if (activeTab === 'history') buildHistoryChart();
+        if (activeTab === 'table') buildCompareTable();
+    }
+    if (!cityHistoryModal.classList.contains('hidden') && currentlyViewingHistoryCity) {
+        openCityHistory(currentlyViewingHistoryCity);
+    }
+}
 
 async function init() {
-  loader.classList.remove('hidden');
-  cardsContainer.innerHTML = '';
-  
-  // Setup Event Listeners
-  setupEventListeners();
-
-  const promises = DEFAULT_CITIES.map(c => fetchCityData(c));
-  const results = await Promise.all(promises);
-  
-  results.forEach(res => {
-      if(res) cityData[res.name] = res;
-  });
-
-  loader.classList.add('hidden');
-  render();
+  initTheme();
+  try {
+      if (loader) loader.classList.remove('hidden');
+      setupEventListeners();
+      const results = await Promise.all(
+          DEFAULT_CITIES.map(c => fetchCityData(c).catch(() => null))
+      );
+      results.forEach(res => { if(res) cityData[res.name] = res; });
+      render();
+  } catch (error) {
+      console.error("Initialization failed:", error);
+  } finally {
+      if (loader) loader.classList.add('hidden');
+  }
 }
 
 function setupEventListeners() {
+  themeToggleBtn?.addEventListener('click', () => setTheme(!isDarkMode));
   document.getElementById('refreshAllBtn')?.addEventListener('click', refreshAll);
   document.getElementById('compareBtn')?.addEventListener('click', openCompareModal);
   document.getElementById('addCityBtn')?.addEventListener('click', openAddModal);
-  
-  document.getElementById('closeAddModalBtn')?.addEventListener('click', closeAddModal);
   document.getElementById('cancelAddBtn')?.addEventListener('click', closeAddModal);
   document.getElementById('confirmAddBtn')?.addEventListener('click', handleAddCity);
-  
   document.getElementById('closeCompareModalBtn')?.addEventListener('click', closeCompareModal);
-  
   document.getElementById('closeCityHistoryModalBtn')?.addEventListener('click', closeCityHistoryModal);
-
-  // View Switcher
   viewGridBtn?.addEventListener('click', () => switchView('grid'));
   viewMapBtn?.addEventListener('click', () => switchView('map'));
-
-  // Tabs
   document.getElementById('tab-btn-table')?.addEventListener('click', () => switchCompareTab('table'));
   document.getElementById('tab-btn-charts')?.addEventListener('click', () => switchCompareTab('charts'));
   document.getElementById('tab-btn-history')?.addEventListener('click', () => switchCompareTab('history'));
   document.getElementById('tab-btn-insights')?.addEventListener('click', () => switchCompareTab('insights'));
-  
-  document.getElementById('mob-tab-table')?.addEventListener('click', () => switchCompareTab('table'));
-  document.getElementById('mob-tab-charts')?.addEventListener('click', () => switchCompareTab('charts'));
-  document.getElementById('mob-tab-history')?.addEventListener('click', () => switchCompareTab('history'));
-  document.getElementById('mob-tab-insights')?.addEventListener('click', () => switchCompareTab('insights'));
-
-  cityInput?.addEventListener('keydown', (e) => {
-    if(e.key === 'Enter') handleAddCity();
+  cityInput?.addEventListener('keydown', (e) => { if(e.key === 'Enter') handleAddCity(); });
+  cityInput?.addEventListener('focus', () => renderRecentSearches());
+  document.addEventListener('mousedown', (e) => {
+      if (!cityInput.contains(e.target as Node) && !recentSearchesContainer.contains(e.target as Node)) {
+          recentSearchesContainer.classList.add('hidden');
+      }
   });
 }
 
-// --- Logic ---
-
 function getAqiInfo(aqi: number) {
-  if (aqi <= 50) return { 
-      label: 'Good', 
-      color: 'text-green-400', 
-      border: 'border-green-500', 
-      pill: 'bg-green-900/50 text-green-300 border-green-700', 
-      hex: '#4ade80',
-      bg: 'bg-gradient-to-br from-gray-800 to-green-900/30',
-      barGradient: 'bg-gradient-to-r from-green-500 to-emerald-600'
-  };
-  if (aqi <= 100) return { 
-      label: 'Moderate', 
-      color: 'text-yellow-400', 
-      border: 'border-yellow-500', 
-      pill: 'bg-yellow-900/50 text-yellow-300 border-yellow-700', 
-      hex: '#facc15',
-      bg: 'bg-gradient-to-br from-gray-800 to-yellow-900/30',
-      barGradient: 'bg-gradient-to-r from-yellow-400 to-yellow-600'
-  };
-  if (aqi <= 150) return { 
-      label: 'Sensitive', 
-      color: 'text-orange-400', 
-      border: 'border-orange-500', 
-      pill: 'bg-orange-900/50 text-orange-300 border-orange-700', 
-      hex: '#fb923c',
-      bg: 'bg-gradient-to-br from-gray-800 to-orange-900/30',
-      barGradient: 'bg-gradient-to-r from-orange-400 to-orange-600'
-  };
-  if (aqi <= 200) return { 
-      label: 'Unhealthy', 
-      color: 'text-red-400', 
-      border: 'border-red-500', 
-      pill: 'bg-red-900/50 text-red-300 border-red-700', 
-      hex: '#f87171',
-      bg: 'bg-gradient-to-br from-gray-800 to-red-900/30',
-      barGradient: 'bg-gradient-to-r from-red-500 to-red-600'
-  };
-  if (aqi <= 300) return { 
-      label: 'Very Unhealthy', 
-      color: 'text-purple-400', 
-      border: 'border-purple-500', 
-      pill: 'bg-purple-900/50 text-purple-300 border-purple-700', 
-      hex: '#c084fc',
-      bg: 'bg-gradient-to-br from-gray-800 to-purple-900/30',
-      barGradient: 'bg-gradient-to-r from-purple-500 to-purple-600'
-  };
-  return { 
-      label: 'Hazardous', 
-      color: 'text-rose-400', 
-      border: 'border-rose-600', 
-      pill: 'bg-rose-900/50 text-rose-300 border-rose-800', 
-      hex: '#fb7185',
-      bg: 'bg-gradient-to-br from-gray-800 to-rose-900/30',
-      barGradient: 'bg-gradient-to-r from-rose-500 to-rose-700'
-  };
+  if (aqi <= 50) return { label: 'Good', advisory: 'Air is ideal for outdoor activities.', color: isDarkMode ? 'text-green-400' : 'text-emerald-700', pill: isDarkMode ? 'bg-green-900/40 text-green-300 border-green-800' : 'bg-emerald-100 text-emerald-800 border-emerald-200', hex: '#10b981', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-green-900/20' : 'bg-white', border: isDarkMode ? 'border-green-500' : 'border-emerald-500', barGradient: 'bg-gradient-to-r from-emerald-400 to-emerald-600' };
+  if (aqi <= 100) return { label: 'Moderate', advisory: 'Sensitive groups should limit exertion.', color: isDarkMode ? 'text-yellow-400' : 'text-amber-800', pill: isDarkMode ? 'bg-yellow-900/40 text-yellow-300 border-yellow-800' : 'bg-amber-100 text-amber-900 border-amber-200', hex: '#f59e0b', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-yellow-900/20' : 'bg-white', border: isDarkMode ? 'border-yellow-500' : 'border-amber-500', barGradient: 'bg-gradient-to-r from-yellow-400 to-amber-500' };
+  if (aqi <= 150) return { label: 'Sensitive', advisory: 'Reduce intense outdoor exercise.', color: isDarkMode ? 'text-orange-400' : 'text-orange-800', pill: isDarkMode ? 'bg-orange-900/40 text-orange-300 border-orange-800' : 'bg-orange-100 text-orange-900 border-orange-200', hex: '#f97316', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-orange-900/20' : 'bg-white', border: isDarkMode ? 'border-orange-500' : 'border-orange-500', barGradient: 'bg-gradient-to-r from-orange-400 to-orange-600' };
+  if (aqi <= 200) return { label: 'Unhealthy', advisory: 'Limit prolonged outdoor exertion.', color: isDarkMode ? 'text-red-400' : 'text-red-700', pill: isDarkMode ? 'bg-red-900/40 text-red-300 border-red-800' : 'bg-red-100 text-red-800 border-red-200', hex: '#ef4444', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-red-900/20' : 'bg-white', border: isDarkMode ? 'border-red-500' : 'border-red-500', barGradient: 'bg-gradient-to-r from-red-500 to-red-600' };
+  if (aqi <= 300) return { label: 'Very Unhealthy', advisory: 'Avoid outdoor activities; stay indoors.', color: isDarkMode ? 'text-purple-400' : 'text-purple-700', pill: isDarkMode ? 'bg-purple-900/40 text-purple-300 border-purple-800' : 'bg-purple-100 text-purple-800 border-purple-200', hex: '#a855f7', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-purple-900/20' : 'bg-white', border: isDarkMode ? 'border-purple-500' : 'border-purple-500', barGradient: 'bg-gradient-to-r from-purple-500 to-purple-600' };
+  return { label: 'Hazardous', advisory: 'Health alert: Everyone stay indoors.', color: isDarkMode ? 'text-rose-400' : 'text-rose-700', pill: isDarkMode ? 'bg-rose-900/40 text-rose-300 border-rose-800' : 'bg-rose-100 text-rose-800 border-rose-200', hex: '#e11d48', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-rose-900/20' : 'bg-white', border: isDarkMode ? 'border-rose-600' : 'border-rose-600', barGradient: 'bg-gradient-to-r from-rose-500 to-rose-700' };
 }
 
 function pm25ToAQI(pm25: number) {
@@ -174,894 +221,405 @@ function pm25ToAQI(pm25: number) {
 }
 
 function linear(Ih: number, Il: number, Ch: number, Cl: number, C: number) {
+  if (Ch === Cl) return Il;
   return Math.round(((Ih - Il) / (Ch - Cl)) * (C - Cl) + Il);
+}
+
+function processForecast(list: any[]): ForecastDay[] {
+    if (!Array.isArray(list)) return [];
+    const dailyForecasts: ForecastDay[] = [];
+    const seenDays = new Set<string>();
+    for (const item of list) {
+        if (dailyForecasts.length >= 3) break;
+        const date = new Date(item.dt * 1000);
+        const dayKey = date.toLocaleDateString();
+        const hour = date.getHours();
+        if (!seenDays.has(dayKey)) {
+            if (hour >= 11 && hour <= 14) {
+                 seenDays.add(dayKey);
+                 dailyForecasts.push({ 
+                    dayName: date.toLocaleDateString('en-US', { weekday: 'short' }), 
+                    temp: Math.round(item.main.temp), 
+                    icon: item.weather[0].icon, 
+                    description: item.weather[0].main 
+                });
+            }
+        }
+    }
+    return dailyForecasts;
 }
 
 async function fetchCityData(cityName: string): Promise<CityData | null> {
   try {
-      const weatherRes = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${cityName}&units=metric&appid=${API_KEY}`);
-      if (!weatherRes.ok) throw new Error('City not found');
-      const weather = await weatherRes.json();
-
-      const airRes = await fetch(`https://api.openweathermap.org/data/2.5/air_pollution?lat=${weather.coord.lat}&lon=${weather.coord.lon}&appid=${API_KEY}`);
-      const air = await airRes.json();
-
-      const pm25 = air.list[0].components.pm2_5;
+      const weather = await safeFetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityName)}&units=metric&appid=${OPENWEATHER_API_KEY}`);
+      const [air, forecastData] = await Promise.all([
+          safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution?lat=${weather.coord.lat}&lon=${weather.coord.lon}&appid=${OPENWEATHER_API_KEY}`),
+          safeFetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${weather.coord.lat}&lon=${weather.coord.lon}&units=metric&appid=${OPENWEATHER_API_KEY}`)
+      ]);
+      const pm25 = air?.list?.[0]?.components?.pm2_5 ?? 10;
       const aqi = pm25ToAQI(pm25);
-
-      return {
-          id: weather.id,
-          name: weather.name,
-          country: weather.sys.country,
-          temp: Math.round(weather.main.temp),
-          humidity: weather.main.humidity,
-          aqi: aqi,
-          lat: weather.coord.lat,
-          lon: weather.coord.lon,
-          windSpeed: weather.wind.speed,
-          windDeg: weather.wind.deg,
-          lastUpdated: new Date()
+      return { 
+          id: weather.id, name: weather.name, country: weather.sys.country, temp: Math.round(weather.main.temp), humidity: weather.main.humidity, aqi, 
+          lat: weather.coord.lat, lon: weather.coord.lon, windSpeed: weather.wind.speed, windDeg: weather.wind.deg, lastUpdated: new Date(), 
+          forecast: processForecast(forecastData?.list || []) 
       };
-  } catch (error) {
-      console.error(error);
-      alert(`Could not fetch data for ${cityName}. Please check spelling.`);
-      return null;
+  } catch (error) { 
+      console.warn(`Data retrieval failed for ${cityName}.`);
+      return null; 
   }
 }
 
-// --- View Logic ---
-
 function switchView(view: 'grid' | 'map') {
     currentView = view;
-    
-    if (view === 'grid') {
-        viewGridBtn.classList.add('bg-gray-600', 'text-white', 'shadow-sm');
-        viewGridBtn.classList.remove('text-gray-400');
-        viewMapBtn.classList.remove('bg-gray-600', 'text-white', 'shadow-sm');
-        viewMapBtn.classList.add('text-gray-400');
-        
-        cardsContainer.classList.remove('hidden');
-        mapViewContainer.classList.add('hidden');
-    } else {
-        viewMapBtn.classList.add('bg-gray-600', 'text-white', 'shadow-sm');
-        viewMapBtn.classList.remove('text-gray-400');
-        viewGridBtn.classList.remove('bg-gray-600', 'text-white', 'shadow-sm');
-        viewGridBtn.classList.add('text-gray-400');
-        
-        cardsContainer.classList.add('hidden');
-        mapViewContainer.classList.remove('hidden');
-        
-        // Leaflet needs to know it's visible to render correctly
-        setTimeout(() => {
-            initMap();
-        }, 100);
-    }
+    const isGrid = view === 'grid';
+    viewGridBtn.classList.toggle('bg-white', isGrid);
+    viewGridBtn.classList.toggle('dark:bg-gray-600', isGrid);
+    viewGridBtn.classList.toggle('shadow-sm', isGrid);
+    viewGridBtn.classList.toggle('text-indigo-600', isGrid);
+    viewGridBtn.setAttribute('aria-selected', isGrid.toString());
+    viewMapBtn.classList.toggle('bg-white', !isGrid);
+    viewMapBtn.classList.toggle('dark:bg-gray-600', !isGrid);
+    viewMapBtn.classList.toggle('shadow-sm', !isGrid);
+    viewMapBtn.classList.toggle('text-indigo-600', !isGrid);
+    viewMapBtn.setAttribute('aria-selected', (!isGrid).toString());
+    cardsContainer.classList.toggle('hidden', !isGrid);
+    mapViewContainer.classList.toggle('hidden', isGrid);
+    if (!isGrid) setTimeout(() => initMap(), 50);
 }
 
 function initMap() {
+    if (typeof L === 'undefined' || !document.getElementById('map')) return;
     if (!mapInstance) {
-        // Initialize Map
-        mapInstance = L.map('map', {
-            zoomControl: false,
-            attributionControl: false
-        }).setView([20, 78], 4); // Default center (India)
-
-        // Add Dark Mode Tile Layer (CartoDB Dark Matter)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 19
-        }).addTo(mapInstance);
-        
-        L.control.zoom({
-            position: 'bottomright'
-        }).addTo(mapInstance);
-    } else {
-        mapInstance.invalidateSize();
+        mapInstance = L.map('map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2); 
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapInstance);
+        L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
     }
-    
-    updateMapMarkers();
+    setTimeout(() => {
+        mapInstance.invalidateSize();
+        updateMapMarkers();
+    }, 100);
 }
 
 function updateMapMarkers() {
     if (!mapInstance) return;
-
-    // Clear existing
     mapMarkers.forEach(m => mapInstance.removeLayer(m));
     mapMarkers = [];
-    
-    const cities = Object.values(cityData);
-    if (cities.length === 0) return;
-
-    const bounds = L.latLngBounds([]);
-
-    cities.forEach(city => {
+    Object.values(cityData).forEach(city => {
         const info = getAqiInfo(city.aqi);
+        const pulseHtml = city.aqi > 100 ? `<div class="aqi-marker-pulse" style="background-color: ${info.hex}"></div>` : '';
+        const statusLabel = info.label.split(' ')[0];
         
-        const marker = L.circleMarker([city.lat, city.lon], {
-            radius: 10,
-            fillColor: info.hex,
-            color: '#fff',
-            weight: 2,
-            opacity: 0.8,
-            fillOpacity: 0.8
-        }).addTo(mapInstance);
+        const icon = L.divIcon({
+            className: 'custom-map-marker',
+            html: `
+              <div class="aqi-marker-container">
+                ${pulseHtml}
+                <div class="relative w-10 h-10 rounded-full border-2 border-white flex flex-col items-center justify-center text-white shadow-xl transform transition-all duration-300 hover:scale-125 hover:z-50" style="background-color: ${info.hex}; cursor: pointer;">
+                    <span class="text-[11px] font-black leading-none">${city.aqi}</span>
+                    <span class="text-[6px] uppercase font-bold tracking-tighter mt-0.5 opacity-90">${statusLabel}</span>
+                </div>
+                <div class="w-2 h-2 absolute -bottom-1 left-1/2 -translate-x-1/2 rotate-45" style="background-color: ${info.hex}; border-right: 2px solid white; border-bottom: 2px solid white;"></div>
+              </div>
+            `,
+            iconSize: [40, 45],
+            iconAnchor: [20, 45]
+        });
 
-        const popupContent = `
-            <div class="font-sans min-w-[150px]">
-                <h3 class="font-bold text-lg text-white mb-1">${city.name}, ${city.country}</h3>
-                <div class="flex items-center gap-2 mb-2">
-                    <span class="text-sm font-semibold px-2 py-0.5 rounded ${info.pill} border border-transparent">${info.label}</span>
-                    <span class="text-sm text-gray-300">AQI: ${city.aqi}</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2 text-sm text-gray-300">
-                    <div class="flex items-center gap-1">
-                        <span class="text-orange-400">Temp:</span> ${city.temp}°C
-                    </div>
-                    <div class="flex items-center gap-1">
-                        <span class="text-blue-400">Hum:</span> ${city.humidity}%
-                    </div>
-                    <div class="col-span-2 flex items-center gap-1">
-                         <span class="text-teal-400">Wind:</span> ${city.windSpeed}m/s
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        marker.bindPopup(popupContent);
+        const marker = L.marker([city.lat, city.lon], { icon }).addTo(mapInstance);
+        marker.bindPopup(`<div class="font-sans min-w-[160px] p-1"><h3 class="font-bold text-lg mb-1">${city.name}</h3><span class="text-xs font-bold px-2 py-0.5 rounded-full ${info.pill}">${info.label} (AQI: ${city.aqi})</span></div>`);
         mapMarkers.push(marker);
-        bounds.extend([city.lat, city.lon]);
     });
-
-    if (mapMarkers.length > 0) {
-        mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
-    }
-}
-
-// --- Card Logic ---
-
-(window as any).toggleSelection = (cityName: string, isChecked: boolean) => {
-  if (isChecked) {
-      selectedCities.add(cityName);
-  } else {
-      selectedCities.delete(cityName);
-  }
-  updateCompareButton();
-};
-
-(window as any).refreshCity = async (name: string) => {
-    const data = await fetchCityData(name);
-    if(data) {
-        cityData[name] = data;
-        render();
-    }
-};
-
-(window as any).removeCity = (name: string) => {
-    if(confirm(`Remove ${name}?`)) {
-        delete cityData[name];
-        selectedCities.delete(name);
-        render();
-    }
-};
-
-(window as any).viewHistory = (name: string) => {
-    const data = cityData[name];
-    if (data) {
-        openCityHistory(data);
-    }
 }
 
 function updateCompareButton() {
-  const count = selectedCities.size;
   const countSpan = document.getElementById('compareCount')!;
-  
-  countSpan.innerText = count.toString();
-  if (count > 0) {
-      countSpan.classList.remove('hidden');
-  } else {
-      countSpan.classList.add('hidden');
-  }
+  countSpan.innerText = selectedCities.size.toString();
+  countSpan.classList.toggle('hidden', selectedCities.size === 0);
 }
 
 function render() {
+  if (!cardsContainer) return;
   cardsContainer.innerHTML = '';
   const cities = Object.keys(cityData);
-  
-  // Render cards
   if(cities.length === 0) {
-      cardsContainer.innerHTML = `<div class="col-span-full text-center py-20 text-gray-500">No cities added. Add a city to get started.</div>`;
+      cardsContainer.innerHTML = `<div class="col-span-full text-center py-20 text-gray-500">No cities added. Add a city to monitor.</div>`;
   } else {
       cities.forEach(city => {
           const data = cityData[city];
-          if(data) {
-              cardsContainer.innerHTML += createCardHTML(data);
-          }
+          if(data) cardsContainer.innerHTML += createCardHTML(data);
       });
   }
-  
   updateCompareButton();
-  
-  // If map is visible, update markers too
-  if (currentView === 'map') {
-      updateMapMarkers();
-  }
 }
 
 function createCardHTML(data: CityData) {
   const aqiInfo = getAqiInfo(data.aqi);
   const isSelected = selectedCities.has(data.name);
-  
+  const windLabel = getWindDir(data.windDeg);
+  const forecastHTML = data.forecast.length > 0 ? `
+      <div class="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/50 mt-1">
+        <h4 class="text-[10px] font-bold tracking-widest text-gray-400 dark:text-gray-500 uppercase mb-3 pt-4">3-Day Forecast</h4>
+        <div class="grid grid-cols-3 gap-3">
+          ${data.forecast.map(day => `
+             <div class="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-700/30">
+                <span class="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-tighter mb-1">${day.dayName}</span>
+                <img src="https://openweathermap.org/img/wn/${day.icon}@2x.png" alt="${day.description}" class="w-10 h-10">
+                <span class="text-sm font-bold text-gray-700 dark:text-gray-200">${day.temp}°</span>
+             </div>`).join('')}
+        </div>
+      </div>` : '';
+
   return `
-  <div class="relative ${aqiInfo.bg} rounded-[1.5rem] shadow-card hover:shadow-card-hover hover:scale-[1.01] transition-all duration-300 overflow-hidden group border border-gray-700/60">
-      <div class="absolute top-0 left-0 w-full h-1.5 ${aqiInfo.barGradient}"></div>
-      
+  <section aria-labelledby="city-${data.id}" class="relative ${aqiInfo.bg} rounded-3xl shadow-card dark:shadow-card-dark hover:shadow-card-hover dark:hover:shadow-card-hover-dark transition-all duration-300 overflow-hidden group border border-gray-200 dark:border-gray-700/60">
+      <div class="absolute top-0 left-0 w-full h-1.5 ${aqiInfo.barGradient}" aria-hidden="true"></div>
       <div class="px-6 pt-6 pb-2 flex justify-between items-start relative z-10">
-          <div class="flex items-center gap-1.5 text-gray-400 font-medium text-sm">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <div class="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 font-bold text-[10px] uppercase tracking-widest">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
               <span>${data.country}</span>
           </div>
-          <div class="flex items-center gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-               <button onclick="viewHistory('${data.name}')" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded border border-gray-600 transition-colors">
-                  History
-              </button>
-              <button onclick="refreshCity('${data.name}')" class="text-gray-400 hover:text-white transition-colors p-1" title="Refresh">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-              </button>
-              <button onclick="removeCity('${data.name}')" class="text-gray-400 hover:text-red-400 transition-colors p-1" title="Remove">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              </button>
+          <div class="flex items-center gap-2">
+              <button onclick="window.viewHistory('${data.name}')" aria-label="View history trends for ${data.name}" class="text-[10px] font-bold uppercase tracking-tight bg-gray-100 dark:bg-gray-700 hover:bg-indigo-50 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 transition-colors">Trends</button>
+              <button onclick="window.refreshCity('${data.name}')" aria-label="Refresh data for ${data.name}" class="text-gray-300 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-white transition-colors p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
+              <button onclick="window.removeCity('${data.name}')" aria-label="Remove ${data.name}" class="text-gray-300 dark:text-gray-500 hover:text-red-500 transition-colors p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
               <label class="flex items-center cursor-pointer ml-1">
-                   <input type="checkbox" onchange="toggleSelection('${data.name}', this.checked)" ${isSelected ? 'checked' : ''} class="w-5 h-5 rounded border-gray-600 bg-gray-700 text-indigo-500 focus:ring-indigo-500 transition duration-150 ease-in-out cursor-pointer">
+                <span class="sr-only">Select ${data.name} for comparison</span>
+                <input type="checkbox" onchange="window.toggleSelection('${data.name}', this.checked)" ${isSelected ? 'checked' : ''} class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-indigo-600 focus:ring-indigo-500">
               </label>
           </div>
       </div>
-
-      <div class="px-6 mb-4 relative z-10 cursor-pointer" onclick="viewHistory('${data.name}')">
-          <h2 class="text-3xl font-bold text-gray-100 tracking-tight leading-none group-hover:text-white transition-colors">${data.name}</h2>
+      <div class="px-6 mb-4 relative z-10">
+        <h2 id="city-${data.id}" class="text-3xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight leading-none group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">${data.name}</h2>
       </div>
-
-      <div class="px-6 pb-6 flex gap-6 relative z-10">
-          <div class="flex flex-col items-center cursor-pointer justify-center" onclick="viewHistory('${data.name}')">
-              <span class="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">AIR QUALITY</span>
-              <div class="w-24 h-24 rounded-full border-[6px] ${aqiInfo.border} bg-gray-800/80 backdrop-blur-sm flex items-center justify-center relative shadow-sm group-hover:scale-105 transition-transform duration-300">
-                  <span class="text-3xl font-bold text-gray-100">${data.aqi}</span>
-              </div>
-              <div class="mt-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${aqiInfo.pill} text-center min-w-[80px]">
-                  ${aqiInfo.label}
-              </div>
+      <div class="px-6 pb-2 flex gap-6 relative z-10">
+          <div class="flex flex-col items-center justify-center">
+              <span class="text-[10px] font-bold tracking-widest text-gray-400 dark:text-gray-500 uppercase mb-3">Air Quality</span>
+              <div class="w-24 h-24 rounded-full border-[6px] ${aqiInfo.border} bg-gray-50 dark:bg-gray-800/80 backdrop-blur-sm flex items-center justify-center relative shadow-inner"><span class="text-3xl font-black text-gray-800 dark:text-gray-100">${data.aqi}</span></div>
+              <div class="mt-3 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${aqiInfo.pill}">${aqiInfo.label}</div>
+              <p class="mt-4 text-[11px] leading-tight font-medium text-gray-500 dark:text-gray-400 text-center max-w-[100px] italic">"${aqiInfo.advisory}"</p>
           </div>
-
           <div class="flex-1 flex flex-col gap-3 justify-center">
-              <div class="flex items-center gap-3 p-3 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50">
-                  <div class="w-10 h-10 rounded-full bg-gray-700 shadow-md flex items-center justify-center text-orange-400 shrink-0">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                  </div>
-                  <div class="flex flex-col">
-                      <span class="text-xs text-gray-400 font-medium">Temperature</span>
-                      <span class="text-xl font-bold text-gray-100 leading-none">${data.temp}°C</span>
-                  </div>
+              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-orange-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
+                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Temp</span><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.temp}°C</span></div>
               </div>
-
-              <div class="flex items-center gap-3 p-3 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50">
-                  <div class="w-10 h-10 rounded-full bg-gray-700 shadow-md flex items-center justify-center text-sky-400 shrink-0">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
-                  </div>
-                  <div class="flex flex-col">
-                      <span class="text-xs text-gray-400 font-medium">Humidity</span>
-                      <span class="text-xl font-bold text-gray-100 leading-none">${data.humidity}%</span>
-                  </div>
+              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-sky-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg></div>
+                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Humidity</span><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.humidity}%</span></div>
               </div>
-
-               <div class="flex items-center gap-3 p-3 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50">
-                  <div class="w-10 h-10 rounded-full bg-gray-700 shadow-md flex items-center justify-center text-teal-400 shrink-0">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </div>
-                  <div class="flex flex-col">
-                      <span class="text-xs text-gray-400 font-medium">Wind</span>
-                      <div class="flex items-center gap-2">
-                        <span class="text-xl font-bold text-gray-100 leading-none">${data.windSpeed}<span class="text-sm font-normal text-gray-400 ml-0.5">m/s</span></span>
-                         <svg class="w-4 h-4 text-teal-400" style="transform: rotate(${data.windDeg}deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
-                      </div>
-                  </div>
+              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-teal-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" /></svg></div>
+                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Wind</span><div class="flex items-center gap-2"><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.windSpeed}<span class="text-xs ml-0.5 font-normal opacity-70">m/s</span></span><div class="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md border border-indigo-100/50 dark:border-indigo-700/30" aria-label="Wind direction: ${windLabel}"><svg class="w-3 h-3 text-indigo-500" style="transform: rotate(${data.windDeg}deg)" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg><span class="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter">${windLabel}</span></div></div></div>
               </div>
           </div>
       </div>
-
-      <div class="px-6 pb-5 text-center relative z-10">
-          <p class="text-[10px] text-gray-500 font-medium">Last updated: Just now</p>
-      </div>
-  </div>
-  `;
+      ${forecastHTML}
+  </section>`;
 }
 
-// --- Modals & Comparison ---
-
-function openAddModal() {
-  addModal.classList.remove('hidden');
-  addModal.classList.remove('opacity-0');
-  setTimeout(() => {
-      addModal.querySelector('div')!.classList.remove('scale-95');
-      addModal.querySelector('div')!.classList.add('scale-100');
-      cityInput.focus();
-  }, 10);
+function openAddModal() { 
+    addModal.classList.remove('hidden', 'opacity-0'); 
+    setTimeout(() => { addModal.querySelector('div')!.classList.replace('scale-95', 'scale-100'); cityInput.focus(); }, 10); 
 }
 
-function closeAddModal() {
-  addModal.querySelector('div')!.classList.remove('scale-100');
-  addModal.querySelector('div')!.classList.add('scale-95');
-  addModal.classList.add('opacity-0');
-  setTimeout(() => {
-      addModal.classList.add('hidden');
-      cityInput.value = '';
-  }, 200);
+function closeAddModal() { 
+    addModal.querySelector('div')!.classList.replace('scale-100', 'scale-95'); 
+    addModal.classList.add('opacity-0'); 
+    setTimeout(() => { addModal.classList.add('hidden'); cityInput.value = ''; }, 200); 
 }
 
-async function handleAddCity() {
-  const city = cityInput.value.trim();
-  if(!city) return;
-  
-  const btn = document.getElementById('confirmAddBtn')!;
-  const originalText = btn.innerText;
-  btn.innerText = 'Searching...';
-  
-  const data = await fetchCityData(city);
-  if(data) {
-      cityData[data.name] = data;
-      render();
-      closeAddModal();
-  }
-  
-  btn.innerText = originalText;
+function renderRecentSearches() {
+    if (recentSearches.length === 0) { recentSearchesContainer.classList.add('hidden'); return; }
+    recentList.innerHTML = '';
+    recentSearches.forEach(name => {
+        const item = document.createElement('button');
+        item.className = "px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors dark:text-gray-300";
+        item.innerText = name;
+        item.setAttribute('role', 'option');
+        item.onclick = () => (window as any).selectRecent(name);
+        recentList.appendChild(item);
+    });
+    recentSearchesContainer.classList.remove('hidden');
+}
+
+async function handleAddCity() { 
+    const city = cityInput.value.trim(); 
+    if(!city) return; 
+    const data = await fetchCityData(city); 
+    if(data) { 
+        cityData[data.name] = data; 
+        recentSearches = [data.name, ...recentSearches.filter(n => n !== data.name)].slice(0, 5);
+        localStorage.setItem('recent_searches', JSON.stringify(recentSearches));
+        render(); closeAddModal(); 
+        if (currentView === 'map') updateMapMarkers(); 
+    } else { alert(`City "${city}" not found.`); } 
 }
 
 function openCompareModal() {
-  if (selectedCities.size < 2) {
-      alert('Please select at least 2 cities to compare.');
-      return;
-  }
-
-  buildCompareTable();
-  buildCompareCharts();
-  
-  // Reset tabs to table
+  if (selectedCities.size < 2) { alert('Select at least 2 cities.'); return; }
+  buildCompareSummary(); buildCompareTable(); buildCompareCharts();
   switchCompareTab('table');
-
-  compareModal.classList.remove('hidden');
-  compareModal.classList.remove('opacity-0');
-  setTimeout(() => {
-      compareModal.querySelector('div')!.classList.remove('scale-95');
-      compareModal.querySelector('div')!.classList.add('scale-100');
-  }, 10);
+  compareModal.classList.remove('hidden', 'opacity-0');
+  setTimeout(() => compareModal.querySelector('div')!.classList.replace('scale-95', 'scale-100'), 10);
 }
 
-function closeCompareModal() {
-  compareModal.querySelector('div')!.classList.remove('scale-100');
-  compareModal.querySelector('div')!.classList.add('scale-95');
-  compareModal.classList.add('opacity-0');
-  setTimeout(() => {
-      compareModal.classList.add('hidden');
-  }, 200);
-}
+function closeCompareModal() { compareModal.querySelector('div')!.classList.replace('scale-100', 'scale-95'); compareModal.classList.add('opacity-0'); setTimeout(() => compareModal.classList.add('hidden'), 200); }
 
 function switchCompareTab(tab: 'table' | 'charts' | 'history' | 'insights') {
-    // Hide all contents
-    document.getElementById('compare-view-table')?.classList.add('hidden');
-    document.getElementById('compare-view-charts')?.classList.add('hidden');
-    document.getElementById('compare-view-history')?.classList.add('hidden');
-    document.getElementById('compare-view-insights')?.classList.add('hidden');
-
-    // Show selected content
-    document.getElementById(`compare-view-${tab}`)?.classList.remove('hidden');
-
-    // Update Tab Styles (Desktop)
-    const tabs = ['table', 'charts', 'history', 'insights'];
-    tabs.forEach(t => {
+    ['table', 'charts', 'history', 'insights'].forEach(t => {
+        const view = document.getElementById(`compare-view-${t}`);
+        if(view) view.classList.toggle('hidden', t !== tab);
         const btn = document.getElementById(`tab-btn-${t}`);
-        if (t === tab) {
-            btn?.classList.add('bg-gray-600', 'text-white', 'shadow-sm');
-            btn?.classList.remove('text-gray-400', 'hover:text-gray-200');
-        } else {
-            btn?.classList.remove('bg-gray-600', 'text-white', 'shadow-sm');
-            btn?.classList.add('text-gray-400', 'hover:text-gray-200');
+        if(btn) {
+            btn.classList.toggle('bg-white', t === tab);
+            btn.classList.toggle('dark:bg-gray-600', t === tab);
+            btn.classList.toggle('shadow-sm', t === tab);
+            btn.classList.toggle('text-indigo-600', t === tab);
+            btn.setAttribute('aria-selected', (t === tab).toString());
         }
     });
+    if (tab === 'insights') generateAIInsights();
+    else if (tab === 'history') buildHistoryChart();
+    else if (tab === 'charts') buildCompareCharts();
+}
 
-    // Update Tab Styles (Mobile)
-    tabs.forEach(t => {
-        const btn = document.getElementById(`mob-tab-${t}`);
-        if (t === tab) {
-            btn?.classList.add('bg-gray-700', 'text-white');
-            btn?.classList.remove('text-gray-400');
-        } else {
-            btn?.classList.remove('bg-gray-700', 'text-white');
-            btn?.classList.add('text-gray-400');
-        }
-    });
-
-    // Trigger actions if needed
-    if (tab === 'insights') {
-        generateAIInsights();
-    } else if (tab === 'history') {
-        buildHistoryChart();
-    }
+function buildCompareSummary() {
+    const summaryContainer = document.getElementById('compareHighlights')!;
+    const cities = Array.from(selectedCities).map(name => cityData[name]).filter(Boolean);
+    const bestAQI = [...cities].sort((a,b) => a.aqi - b.aqi)[0];
+    const coolest = [...cities].sort((a,b) => a.temp - b.temp)[0];
+    const windiest = [...cities].sort((a,b) => b.windSpeed - a.windSpeed)[0];
+    
+    summaryContainer.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800/30">
+                <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1">Cleanest Air</span>
+                <span class="text-lg font-black">${bestAQI.name}</span>
+                <span class="text-xs block text-emerald-600/70">AQI: ${bestAQI.aqi}</span>
+            </div>
+            <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-800/30">
+                <span class="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Coolest City</span>
+                <span class="text-lg font-black">${coolest.name}</span>
+                <span class="text-xs block text-blue-600/70">Temp: ${coolest.temp}°C</span>
+            </div>
+            <div class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
+                <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block mb-1">High Wind</span>
+                <span class="text-lg font-black">${windiest.name}</span>
+                <span class="text-xs block text-indigo-600/70">${windiest.windSpeed} m/s</span>
+            </div>
+        </div>`;
 }
 
 function buildCompareTable() {
-    const tbody = document.getElementById('compareTableBody');
-    if(!tbody) return;
+    const tbody = document.getElementById('compareTableBody')!;
     tbody.innerHTML = '';
-    
     selectedCities.forEach(city => {
-        const d = cityData[city];
-        if(!d) return;
+        const d = cityData[city]; if(!d) return;
         const info = getAqiInfo(d.aqi);
-        
-        tbody.innerHTML += `
-        <tr class="hover:bg-gray-750 transition-colors">
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-100">${d.name}, ${d.country}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${info.pill}">
-                    ${d.aqi}
-                </span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-medium">${d.temp}°C</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-medium">${d.humidity}%</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                 <span class="${info.color} font-bold">${info.label}</span>
-            </td>
-        </tr>
-        `;
+        tbody.innerHTML += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.name}</td><td class="px-8 py-4 whitespace-nowrap"><span class="px-3 py-1 rounded-full text-xs font-black ${info.pill}">${d.aqi}</span></td><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.temp}°C</td><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.humidity}%</td><td class="px-8 py-4 whitespace-nowrap"><span class="${info.color} font-black uppercase tracking-tight">${info.label}</span></td></tr>`;
     });
 }
 
 function buildCompareCharts() {
     const cities = Array.from(selectedCities).map(name => cityData[name]).filter(Boolean);
-    if(cities.length === 0) return;
-
     const labels = cities.map(c => c.name);
-    const aqiData = cities.map(c => c.aqi);
-    const tempData = cities.map(c => c.temp);
-    const humData = cities.map(c => c.humidity);
+    const textColor = isDarkMode ? '#9ca3af' : '#1f2937';
+    const gridColor = isDarkMode ? '#374151' : '#e5e7eb';
     
-    // Common Options
-    const commonOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { display: false }, ticks: { color: '#9ca3af' } },
-            y: { grid: { color: '#374151' }, ticks: { color: '#9ca3af' }, beginAtZero: true }
-        }
-    };
+    const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: textColor } }, y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true } } };
 
-    // AQI Chart
     if (aqiChartInstance) aqiChartInstance.destroy();
-    const ctxAqi = (document.getElementById('aqiChart') as HTMLCanvasElement)?.getContext('2d');
-    if (ctxAqi) {
-         aqiChartInstance = new Chart(ctxAqi, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'AQI',
-                    data: aqiData,
-                    backgroundColor: cities.map(c => getAqiInfo(c.aqi).hex),
-                    borderRadius: 4
-                }]
-            },
-            options: commonOptions
-        });
-    }
+    aqiChartInstance = new Chart(document.getElementById('aqiChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.aqi), backgroundColor: cities.map(c => getAqiInfo(c.aqi).hex), borderRadius: 8 }] }, options: baseOpts });
 
-    // Temp Chart
     if (tempChartInstance) tempChartInstance.destroy();
-    const ctxTemp = (document.getElementById('tempChart') as HTMLCanvasElement)?.getContext('2d');
-    if (ctxTemp) {
-         tempChartInstance = new Chart(ctxTemp, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Temperature (°C)',
-                    data: tempData,
-                    backgroundColor: 'rgba(249, 115, 22, 0.8)', // Orange
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                ...commonOptions,
-                scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, beginAtZero: false } }
-            }
-        });
-    }
-    
-    // Humidity Chart
+    tempChartInstance = new Chart(document.getElementById('tempChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.temp), backgroundColor: '#f97316', borderRadius: 8 }] }, options: baseOpts });
+
     if (humChartInstance) humChartInstance.destroy();
-    const ctxHum = (document.getElementById('humChart') as HTMLCanvasElement)?.getContext('2d');
-    if (ctxHum) {
-         humChartInstance = new Chart(ctxHum, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Humidity (%)',
-                    data: humData,
-                    backgroundColor: 'rgba(56, 189, 248, 0.8)', // Sky Blue
-                    borderRadius: 4
-                }]
-            },
-            options: commonOptions
-        });
-    }
-}
+    humChartInstance = new Chart(document.getElementById('humChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.humidity), backgroundColor: '#0ea5e9', borderRadius: 8 }] }, options: baseOpts });
 
-// --- Historical Data Logic for Comparison ---
+    if (windChartInstance) windChartInstance.destroy();
+    windChartInstance = new Chart(document.getElementById('windChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.windSpeed), backgroundColor: '#14b8a6', borderRadius: 8 }] }, options: baseOpts });
 
-async function getHistoricalData(lat: number, lon: number) {
-    // 7 days ago unix timestamp
-    const end = Math.floor(Date.now() / 1000);
-    const start = end - (7 * 24 * 60 * 60);
-
-    try {
-        const res = await fetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${lat}&lon=${lon}&start=${start}&end=${end}&appid=${API_KEY}`);
-        const data = await res.json();
-        return data.list || [];
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
+    if (radarChartInstance) radarChartInstance.destroy();
+    const radarColors = ['rgba(99, 102, 241, 0.4)', 'rgba(236, 72, 153, 0.4)', 'rgba(16, 185, 129, 0.4)'];
+    const radarBorders = ['#6366f1', '#ec4899', '#10b981'];
+    
+    radarChartInstance = new Chart(document.getElementById('radarChart'), {
+        type: 'radar',
+        data: {
+            labels: ['AQI (norm)', 'Temp (x2)', 'Humidity', 'Wind (x10)'],
+            datasets: cities.map((c, i) => ({ label: c.name, data: [c.aqi / 2, c.temp * 2, c.humidity, c.windSpeed * 10], backgroundColor: radarColors[i % 3], borderColor: radarBorders[i % 3], pointBackgroundColor: radarBorders[i % 3], borderWidth: 2 }))
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { r: { grid: { color: gridColor }, angleLines: { color: gridColor }, pointLabels: { color: textColor, font: { weight: 'bold' } }, ticks: { display: false } } }, plugins: { legend: { display: true, position: 'bottom', labels: { color: textColor, usePointStyle: true } } } }
+    });
 }
 
 async function buildHistoryChart() {
     const loading = document.getElementById('history-loading')!;
     loading.classList.remove('hidden');
-
     if (historyChartInstance) historyChartInstance.destroy();
-
     const datasets: any[] = [];
-    // Generate labels for X axis (Last 7 days)
     const labels: string[] = [];
     const now = new Date();
-    for(let i=6; i>=0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        labels.push(d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }));
+    for(let i=6; i>=0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); labels.push(d.toLocaleDateString('en-US', { weekday: 'short' })); }
+    const colors = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6'];
+    let idx = 0;
+    for (const name of selectedCities) {
+        const city = cityData[name]; if(!city) continue;
+        const start = Math.floor(Date.now()/1000) - 604800;
+        try {
+            const data = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${city.lat}&lon=${city.lon}&start=${start}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
+            const dailyMap = new Map();
+            data.list.forEach((it: any) => { const k = new Date(it.dt * 1000).toDateString(); if(!dailyMap.has(k)) dailyMap.set(k, {sum: 0, count: 0}); dailyMap.get(k).sum += pm25ToAQI(it.components.pm2_5); dailyMap.get(k).count++; });
+            datasets.push({ label: name, data: Array.from(dailyMap.values()).map(v => Math.round(v.sum/v.count)).slice(-7), borderColor: colors[idx++ % 5], tension: 0.3, fill: false });
+        } catch (e) {}
     }
-
-    const colorPalette = [
-        '#818cf8', // Indigo
-        '#f472b6', // Pink
-        '#34d399', // Emerald
-        '#fbbf24', // Amber
-        '#60a5fa', // Blue
-        '#a78bfa', // Violet
-    ];
-
-    let colorIdx = 0;
-
-    for (const cityName of selectedCities) {
-        const city = cityData[cityName];
-        if(!city) continue;
-
-        const rawData = await getHistoricalData(city.lat, city.lon);
-        
-        // Group by Day and average AQI
-        const dailyMap = new Map<string, number[]>();
-        labels.forEach(l => dailyMap.set(l, []));
-
-        rawData.forEach((item: any) => {
-            const date = new Date(item.dt * 1000);
-            const key = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            
-            if (dailyMap.has(key)) {
-                const val = pm25ToAQI(item.components.pm2_5);
-                dailyMap.get(key)!.push(val);
-            }
-        });
-
-        const dataPoints = labels.map(l => {
-            const vals = dailyMap.get(l);
-            if (!vals || vals.length === 0) return 0;
-            const sum = vals.reduce((a, b) => a + b, 0);
-            return Math.round(sum / vals.length);
-        });
-
-        const color = colorPalette[colorIdx % colorPalette.length];
-        
-        datasets.push({
-            label: city.name,
-            data: dataPoints,
-            borderColor: color,
-            backgroundColor: color,
-            borderWidth: 2,
-            tension: 0.4,
-            pointRadius: 4,
-            pointBackgroundColor: '#1f2937',
-            pointBorderWidth: 2
-        });
-        
-        colorIdx++;
-    }
-
-    const ctx = (document.getElementById('historyChart') as HTMLCanvasElement).getContext('2d');
-    
-    historyChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: datasets
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: true,
-                    labels: { color: '#9ca3af', font: { family: 'Inter', size: 12 } }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { color: '#9ca3af' }
-                },
-                y: {
-                    grid: { color: '#374151', borderDash: [5, 5] },
-                    ticks: { color: '#9ca3af' },
-                    beginAtZero: true,
-                    title: { display: true, text: 'Avg AQI (PM2.5)', color: '#6b7280', font: { size: 10 } }
-                }
-            }
-        }
-    });
-
+    historyChartInstance = new Chart(document.getElementById('historyChart'), { type: 'line', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false } });
     loading.classList.add('hidden');
 }
 
-// --- City History Modal ---
-
 async function openCityHistory(data: CityData) {
-    document.getElementById('historyModalTitle')!.innerText = `${data.name} - Historical Analysis (2015-2025)`;
-    const loading = document.getElementById('city-history-loading')!;
-    loading.classList.remove('hidden');
-    
-    cityHistoryModal.classList.remove('hidden');
-    cityHistoryModal.classList.remove('opacity-0');
-    setTimeout(() => {
-        cityHistoryModal.querySelector('div')!.classList.remove('scale-95');
-        cityHistoryModal.querySelector('div')!.classList.add('scale-100');
-    }, 10);
-
-    // 1. Fetch data from Jan 1 2022 (1640995200) to Now (3 years roughly)
-    const start = 1640995200; 
-    const end = Math.floor(Date.now() / 1000);
-    
+    currentlyViewingHistoryCity = data;
+    (document.getElementById('historyModalTitle') as HTMLElement).innerText = `${data.name} Trends`;
+    document.getElementById('city-history-loading')!.classList.remove('hidden');
+    cityHistoryModal.classList.remove('hidden', 'opacity-0');
+    setTimeout(() => cityHistoryModal.querySelector('div')!.classList.replace('scale-95', 'scale-100'), 10);
+    const startUnix = Math.floor(Date.now() / 1000) - (30 * 86400);
     try {
-        const res = await fetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${data.lat}&lon=${data.lon}&start=${start}&end=${end}&appid=${API_KEY}`);
-        
-        if (!res.ok) {
-            throw new Error(`API Error: ${res.status}`);
-        }
-
-        const historyData = await res.json();
-        
-        if (historyData.list && historyData.list.length > 0) {
-            renderCityHistoryChart(historyData.list);
-        } else {
-             console.log("No historical data available");
-             // Clear chart if no data
-             if (cityHistoryChartInstance) cityHistoryChartInstance.destroy();
-        }
-    } catch (e) {
-        console.error("Error fetching history", e);
-        // Do not alert, just log
-    } finally {
-        loading.classList.add('hidden');
-    }
+        const hData = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${data.lat}&lon=${data.lon}&start=${startUnix}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
+        renderCityHistoryChart(hData.list);
+    } catch (e) {}
+    document.getElementById('city-history-loading')!.classList.add('hidden');
 }
 
-function closeCityHistoryModal() {
-    cityHistoryModal.querySelector('div')!.classList.remove('scale-100');
-    cityHistoryModal.querySelector('div')!.classList.add('scale-95');
-    cityHistoryModal.classList.add('opacity-0');
-    setTimeout(() => {
-        cityHistoryModal.classList.add('hidden');
-    }, 200);
-}
+function closeCityHistoryModal() { cityHistoryModal.querySelector('div')!.classList.replace('scale-100', 'scale-95'); cityHistoryModal.classList.add('opacity-0'); setTimeout(() => cityHistoryModal.classList.add('hidden'), 200); }
 
 function renderCityHistoryChart(rawData: any[]) {
-    // Aggregation: Group by Year-Month to handle large dataset
-    // Key: "2015-0" (Jan 2015), Value: { sum: 0, count: 0 }
-    const monthlyData = new Map<string, { sum: number, count: number, dateObj: Date }>();
-    
-    rawData.forEach(item => {
-        const date = new Date(item.dt * 1000);
-        const key = `${date.getFullYear()}-${date.getMonth()}`; // e.g. 2015-0
-        
-        if (!monthlyData.has(key)) {
-            monthlyData.set(key, { sum: 0, count: 0, dateObj: date });
-        }
-        
-        const entry = monthlyData.get(key)!;
-        // Convert PM2.5 to AQI
-        entry.sum += pm25ToAQI(item.components.pm2_5);
-        entry.count++;
-    });
-
-    // Convert map to sorted arrays
-    const sortedKeys = Array.from(monthlyData.keys()).sort((a, b) => {
-        const [y1, m1] = a.split('-').map(Number);
-        const [y2, m2] = b.split('-').map(Number);
-        return (y1 * 12 + m1) - (y2 * 12 + m2);
-    });
-
-    const labels = sortedKeys.map(key => {
-        const d = monthlyData.get(key)!.dateObj;
-        return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    });
-
-    const dataPoints = sortedKeys.map(key => {
-        const entry = monthlyData.get(key)!;
-        return Math.round(entry.sum / entry.count);
-    });
-
-    // Destroy existing chart
     if (cityHistoryChartInstance) cityHistoryChartInstance.destroy();
-
-    const ctx = (document.getElementById('cityHistoryChart') as HTMLCanvasElement).getContext('2d');
-    
-    // Create Gradient
-    const gradient = ctx!.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); // Indigo
-    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
-
-    cityHistoryChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Monthly Avg AQI',
-                data: dataPoints,
-                borderColor: '#6366f1', // Indigo 500
-                backgroundColor: gradient,
-                borderWidth: 2,
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0, // Hide points for cleaner look on long history
-                pointHoverRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(17, 24, 39, 0.9)',
-                    titleColor: '#f3f4f6',
-                    bodyColor: '#d1d5db',
-                    borderColor: '#374151',
-                    borderWidth: 1,
-                    callbacks: {
-                        label: function(context: any) {
-                            return `Avg AQI: ${context.parsed.y}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { 
-                        color: '#9ca3af',
-                        maxTicksLimit: 12 // Show ~1 label per year roughly
-                    } 
-                },
-                y: {
-                    grid: { color: '#374151', borderDash: [5, 5] },
-                    ticks: { color: '#9ca3af' },
-                    beginAtZero: true
-                }
-            },
-            interaction: {
-                mode: 'nearest',
-                axis: 'x',
-                intersect: false
-            }
-        }
-    });
-
-    const loading = document.getElementById('city-history-loading');
-    if (loading) loading.classList.add('hidden');
+    const daily = new Map<string, { sum: number, count: number, date: Date }>();
+    rawData.forEach(it => { const d = new Date(it.dt * 1000); const k = d.toDateString(); if (!daily.has(k)) daily.set(k, { sum: 0, count: 0, date: d }); daily.get(k)!.sum += pm25ToAQI(it.components.pm2_5); daily.get(k)!.count++; });
+    const sorted = Array.from(daily.keys()).sort((a,b) => daily.get(a)!.date.getTime() - daily.get(b)!.date.getTime());
+    cityHistoryChartInstance = new Chart(document.getElementById('cityHistoryChart'), { type: 'line', data: { labels: sorted.map(k => daily.get(k)!.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), datasets: [{ label: 'AQI', data: sorted.map(k => Math.round(daily.get(k)!.sum/daily.get(k)!.count)), borderColor: '#6366f1', tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false } });
 }
-
-// --- Gemini AI Integration ---
-
-let currentInsightsSelection = '';
 
 async function generateAIInsights() {
-    // Generate a signature for the current selection to avoid refetching
-    const currentSelectionSignature = Array.from(selectedCities).sort().join(',');
-    
-    // If we already have results for this selection, don't refetch
-    if (currentInsightsSelection === currentSelectionSignature && aiContentBody.innerHTML.trim() !== '') {
-        return;
-    }
-    
-    // Reset State
-    aiLoadingDiv.classList.remove('hidden');
-    aiResultDiv.classList.add('hidden');
-    currentInsightsSelection = currentSelectionSignature;
-
-    // Prepare Data for Gemini
-    const citiesToAnalyze: any[] = [];
-    selectedCities.forEach(city => {
-        if(cityData[city]) {
-            const { name, country, temp, humidity, aqi } = cityData[city];
-            citiesToAnalyze.push({ name, country, temp, humidity, aqi });
-        }
-    });
-
-    const prompt = `
-    Analyze the environmental data for these cities:
-    ${JSON.stringify(citiesToAnalyze)}
-
-    Role: Environmental Health Expert.
-    Task: Provide a concise comparative analysis.
-    
-    Structure your response exactly as follows (HTML format, no markdown blocks):
-    1. <h3>Executive Summary</h3>: A 1-sentence overview of the comparison.
-    2. <h3>Highlights</h3>: Bullet points identifying the city with the best air quality and the worst.
-    3. <h3>Health Advisory</h3>: Specific, actionable advice for residents in the city with the worst AQI.
-    4. <h3>Weather Context</h3>: Briefly mention how temperature/humidity might be affecting the air quality (e.g. high humidity trapping pollutants).
-
-    Keep it professional, friendly, and easy to read. Use <strong> for emphasis.
-    `;
-
+    aiLoadingDiv.classList.remove('hidden'); aiResultDiv.classList.add('hidden');
+    const stats = await Promise.all(Array.from(selectedCities).map(async (name) => {
+        const city = cityData[name]; if(!city) return null;
+        try {
+            const start = Math.floor(Date.now() / 1000) - (30 * 86400);
+            const data = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${city.lat}&lon=${city.lon}&start=${start}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
+            const aqis = data.list.map((it: any) => pm25ToAQI(it.components.pm2_5));
+            return { name, current: city.aqi, avg: Math.round(aqis.reduce((a:number,b:number)=>a+b,0)/aqis.length), peak: Math.max(...aqis) };
+        } catch(e) { return { name, current: city.aqi }; }
+    }));
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-
-        const htmlContent = response.text;
-        
-        aiContentBody.innerHTML = htmlContent;
-        aiLoadingDiv.classList.add('hidden');
-        aiResultDiv.classList.remove('hidden');
-
-    } catch (error) {
-        console.error("AI Error:", error);
-        aiLoadingDiv.classList.add('hidden');
-        aiContentBody.innerHTML = `<p class="text-red-400">Unable to generate insights at this time. Please check your connection or API key.</p>`;
-        aiResultDiv.classList.remove('hidden');
-    }
+        const aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const res = await aiClient.models.generateContent({ model: 'gemini-3-flash-preview', contents: `Compare air quality for these cities: ${JSON.stringify(stats.filter(Boolean))}. Use HTML h3, p, ul tags.` });
+        aiContentBody.innerHTML = res.text || 'No response.';
+    } catch (e) { aiContentBody.innerHTML = '<p class="text-red-500">AI unavailable.</p>'; }
+    aiLoadingDiv.classList.add('hidden'); aiResultDiv.classList.remove('hidden');
 }
 
-async function refreshAll() {
-  loader.classList.remove('hidden');
-  cardsContainer.innerHTML = ''; 
-  
-  const currentCities = Object.keys(cityData);
-  if (currentCities.length === 0) {
-       await init();
-       return;
-  }
+async function refreshAll() { loader.classList.remove('hidden'); const res = await Promise.all(Object.keys(cityData).map(c => fetchCityData(c).catch(() => null))); res.forEach(r => { if(r) cityData[r.name] = r; }); loader.classList.add('hidden'); render(); }
 
-  const promises = currentCities.map(c => fetchCityData(c));
-  const results = await Promise.all(promises);
-  
-  cityData = {}; 
-  results.forEach(res => {
-      if(res) cityData[res.name] = res;
-  });
-
-  loader.classList.add('hidden');
-  render();
-}
-
-// Start
 init();
