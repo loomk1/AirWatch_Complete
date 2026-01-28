@@ -1,5 +1,7 @@
 {
-  "name": "AeroStatV2",
-  "description": "A modern, real-time air quality and weather monitoring dashboard featuring a clean UI and Gemini-powered data insights.",
-  "requestFramePermissions": []
+  "name": "AirWatch Global Monitor",
+  "description": "Premium real-time air quality dashboard with Gemini-3 Pro Chatbot and Google Search grounded intelligence.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
 
 declare const Chart: any;
 declare const L: any;
@@ -40,6 +40,9 @@ let isDarkMode = true;
 let currentlyViewingHistoryCity: CityData | null = null;
 let recentSearches: string[] = JSON.parse(localStorage.getItem('recent_searches') || '[]');
 
+// AI Chat state
+let aiChatInstance: Chat | null = null;
+
 // DOM Elements
 const cardsContainer = document.getElementById('cards')!;
 const mapViewContainer = document.getElementById('map-view')!;
@@ -51,12 +54,22 @@ const cityInput = document.getElementById('cityInput') as HTMLInputElement;
 const aiResultDiv = document.getElementById('ai-result')!;
 const aiLoadingDiv = document.getElementById('ai-loading')!;
 const aiContentBody = document.getElementById('ai-content-body')!;
+const aiGroundingContainer = document.getElementById('ai-grounding-sources')!;
+const groundingLinksDiv = document.getElementById('grounding-links')!;
 const recentSearchesContainer = document.getElementById('recentSearches')!;
 const recentList = document.getElementById('recentList')!;
 
 const viewGridBtn = document.getElementById('view-grid-btn')!;
 const viewMapBtn = document.getElementById('view-map-btn')!;
 const themeToggleBtn = document.getElementById('theme-toggle')!;
+
+// Chat UI Elements
+const openChatBtn = document.getElementById('open-chat-btn')!;
+const closeChatBtn = document.getElementById('close-chat-btn')!;
+const chatModal = document.getElementById('chat-modal')!;
+const chatMessages = document.getElementById('chat-messages')!;
+const chatInput = document.getElementById('chat-input') as HTMLInputElement;
+const sendChatBtn = document.getElementById('send-chat-btn')!;
 
 // New Controls
 const fullscreenBtn = document.getElementById('fullscreen-btn')!;
@@ -173,6 +186,7 @@ async function init() {
       );
       results.forEach(res => { if(res) cityData[res.name] = res; });
       render();
+      initAIChat();
   } catch (error) {
       console.error("Initialization failed:", error);
   } finally {
@@ -200,6 +214,12 @@ function setupEventListeners() {
     }
   });
 
+  // Chat UI Listeners
+  openChatBtn?.addEventListener('click', toggleChat);
+  closeChatBtn?.addEventListener('click', toggleChat);
+  sendChatBtn?.addEventListener('click', handleChatSubmit);
+  chatInput?.addEventListener('keydown', (e) => { if(e.key === 'Enter') handleChatSubmit(); });
+
   document.getElementById('compareBtn')?.addEventListener('click', openCompareModal);
   document.getElementById('addCityBtn')?.addEventListener('click', openAddModal);
   document.getElementById('cancelAddBtn')?.addEventListener('click', closeAddModal);
@@ -221,6 +241,118 @@ function setupEventListeners() {
   });
 }
 
+// --- AI Chat Logic (Pro) ---
+async function initAIChat() {
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        aiChatInstance = ai.chats.create({
+            model: 'gemini-3-pro-preview',
+            config: {
+                systemInstruction: 'You are an environmental data scientist and health advisor. Help users understand air quality, weather trends, and pollution impacts. Be concise and professional. You have access to the user\'s currently tracked cities data if they ask.'
+            }
+        });
+    } catch (e) {
+        console.error("AI Chat Init failed", e);
+    }
+}
+
+function toggleChat() {
+    const isHidden = chatModal.classList.contains('hidden');
+    if (isHidden) {
+        chatModal.classList.remove('hidden');
+        setTimeout(() => {
+            chatModal.classList.replace('scale-95', 'scale-100');
+            chatModal.classList.replace('opacity-0', 'opacity-100');
+        }, 10);
+    } else {
+        chatModal.classList.replace('scale-100', 'scale-95');
+        chatModal.classList.replace('opacity-100', 'opacity-0');
+        setTimeout(() => chatModal.classList.add('hidden'), 200);
+    }
+}
+
+async function handleChatSubmit() {
+    const text = chatInput.value.trim();
+    if (!text || !aiChatInstance) return;
+
+    chatInput.value = '';
+    appendChatMessage('user', text);
+    
+    const loadingId = appendChatMessage('ai', '<div class="flex gap-1"><div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div><div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div><div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div></div>');
+
+    try {
+        const response: GenerateContentResponse = await aiChatInstance.sendMessage({ message: text });
+        const aiMsgDiv = document.getElementById(loadingId);
+        if (aiMsgDiv) aiMsgDiv.innerHTML = response.text || 'Sorry, I encountered an error.';
+    } catch (e) {
+        const aiMsgDiv = document.getElementById(loadingId);
+        if (aiMsgDiv) aiMsgDiv.innerHTML = '<span class="text-red-500">Service unavailable. Please try again.</span>';
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function appendChatMessage(role: 'user' | 'ai', content: string): string {
+    const id = 'msg-' + Math.random().toString(36).substr(2, 9);
+    const bubble = document.createElement('div');
+    bubble.id = id;
+    bubble.className = `chat-bubble p-3 rounded-2xl text-sm shadow-sm ${role === 'user' ? 'chat-bubble-user bg-indigo-600 text-white self-end ml-auto' : 'chat-bubble-ai bg-white dark:bg-gray-800 dark:border-gray-700 self-start mr-auto'}`;
+    bubble.innerHTML = content;
+    chatMessages.appendChild(bubble);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return id;
+}
+
+// --- Analyst AI with Search Grounding (Flash + Google Search) ---
+async function generateAIInsights() {
+    aiLoadingDiv.classList.remove('hidden'); aiResultDiv.classList.add('hidden');
+    aiGroundingContainer.classList.add('hidden'); groundingLinksDiv.innerHTML = '';
+
+    const stats = await Promise.all(Array.from(selectedCities).map(async (name) => {
+        const city = cityData[name]; if(!city) return null;
+        try {
+            const start = Math.floor(Date.now() / 1000) - (30 * 86400);
+            const data = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${city.lat}&lon=${city.lon}&start=${start}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
+            const aqis = data.list.map((it: any) => pm25ToAQI(it.components.pm2_5));
+            return { name, current: city.aqi, avg: Math.round(aqis.reduce((a:number,b:number)=>a+b,0)/aqis.length), peak: Math.max(...aqis) };
+        } catch(e) { return { name, current: city.aqi }; }
+    }));
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `As an environmental analyst, analyze the current data for these cities: ${JSON.stringify(stats.filter(Boolean))}. 
+            Also, use Google Search to find recent environmental news or local air quality advisories for these locations to provide grounded, real-time context.
+            Format with H3, P, and UL tags.`,
+            config: {
+                tools: [{ googleSearch: {} }]
+            }
+        });
+
+        aiContentBody.innerHTML = response.text || 'No response generated.';
+        
+        // Citations / Grounding
+        const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (chunks && chunks.length > 0) {
+            aiGroundingContainer.classList.remove('hidden');
+            chunks.forEach((chunk: any) => {
+                if (chunk.web?.uri) {
+                    const link = document.createElement('a');
+                    link.href = chunk.web.uri;
+                    link.target = '_blank';
+                    link.className = "px-3 py-1 bg-gray-100 dark:bg-gray-750 text-[10px] font-bold text-indigo-500 rounded-full border border-gray-200 dark:border-gray-700 hover:bg-white transition-colors truncate max-w-[200px]";
+                    link.innerText = chunk.web.title || 'Source';
+                    groundingLinksDiv.appendChild(link);
+                }
+            });
+        }
+    } catch (e) { 
+        aiContentBody.innerHTML = '<p class="text-red-500">AI analysis unavailable. Ensure you have an active project and billing enabled for Search Grounding.</p>'; 
+    }
+    aiLoadingDiv.classList.add('hidden'); aiResultDiv.classList.remove('hidden');
+}
+
+// --- Standard UI Rendering ---
 function getAqiInfo(aqi: number) {
   if (aqi <= 50) return { label: 'Good', advisory: 'Air is ideal for outdoor activities.', color: isDarkMode ? 'text-green-400' : 'text-emerald-700', pill: isDarkMode ? 'bg-green-900/40 text-green-300 border-green-800' : 'bg-emerald-100 text-emerald-800 border-emerald-200', hex: '#10b981', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-green-900/20' : 'bg-white', border: isDarkMode ? 'border-green-500' : 'border-emerald-500', barGradient: 'bg-gradient-to-r from-emerald-400 to-emerald-600' };
   if (aqi <= 100) return { label: 'Moderate', advisory: 'Sensitive groups should limit exertion.', color: isDarkMode ? 'text-yellow-400' : 'text-amber-800', pill: isDarkMode ? 'bg-yellow-900/40 text-yellow-300 border-yellow-800' : 'bg-amber-100 text-amber-900 border-amber-200', hex: '#f59e0b', bg: isDarkMode ? 'bg-gradient-to-br from-gray-800 to-yellow-900/20' : 'bg-white', border: isDarkMode ? 'border-yellow-500' : 'border-amber-500', barGradient: 'bg-gradient-to-r from-yellow-400 to-amber-500' };
@@ -614,25 +746,6 @@ function renderCityHistoryChart(rawData: any[]) {
     rawData.forEach(it => { const d = new Date(it.dt * 1000); const k = d.toDateString(); if (!daily.has(k)) daily.set(k, { sum: 0, count: 0, date: d }); daily.get(k)!.sum += pm25ToAQI(it.components.pm2_5); daily.get(k)!.count++; });
     const sorted = Array.from(daily.keys()).sort((a,b) => daily.get(a)!.date.getTime() - daily.get(b)!.date.getTime());
     cityHistoryChartInstance = new Chart(document.getElementById('cityHistoryChart'), { type: 'line', data: { labels: sorted.map(k => daily.get(k)!.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), datasets: [{ label: 'Daily Avg AQI', data: sorted.map(k => Math.round(daily.get(k)!.sum/daily.get(k)!.count)), borderColor: '#6366f1', tension: 0.3, fill: true, backgroundColor: 'rgba(99, 102, 241, 0.1)' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
-}
-
-async function generateAIInsights() {
-    aiLoadingDiv.classList.remove('hidden'); aiResultDiv.classList.add('hidden');
-    const stats = await Promise.all(Array.from(selectedCities).map(async (name) => {
-        const city = cityData[name]; if(!city) return null;
-        try {
-            const start = Math.floor(Date.now() / 1000) - (30 * 86400);
-            const data = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${city.lat}&lon=${city.lon}&start=${start}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
-            const aqis = data.list.map((it: any) => pm25ToAQI(it.components.pm2_5));
-            return { name, current: city.aqi, avg: Math.round(aqis.reduce((a:number,b:number)=>a+b,0)/aqis.length), peak: Math.max(...aqis) };
-        } catch(e) { return { name, current: city.aqi }; }
-    }));
-    try {
-        const aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const res = await aiClient.models.generateContent({ model: 'gemini-3-flash-preview', contents: `Act as a health advisor. Compare air quality for these cities: ${JSON.stringify(stats.filter(Boolean))}. Use HTML h3, p, ul tags. Keep it concise for mobile users.` });
-        aiContentBody.innerHTML = res.text || 'No response.';
-    } catch (e) { aiContentBody.innerHTML = '<p class="text-red-500">AI analysis unavailable.</p>'; }
-    aiLoadingDiv.classList.add('hidden'); aiResultDiv.classList.remove('hidden');
 }
 
 async function refreshAll() { loader.classList.remove('hidden'); const res = await Promise.all(Object.keys(cityData).map(c => fetchCityData(c).catch(() => null))); res.forEach(r => { if(r) cityData[r.name] = r; }); loader.classList.add('hidden'); render(); }
