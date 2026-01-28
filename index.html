@@ -49,7 +49,6 @@
         .custom-map-marker { background: none !important; border: none !important; }
         button:focus-visible, input:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
 
-        /* Modal specific sizing for mobile */
         @media (max-width: 640px) {
             .comparison-modal-content { height: 95dvh; border-radius: 1.5rem 1.5rem 0 0; position: fixed; bottom: 0; }
         }
@@ -69,6 +68,16 @@
                 </div>
             </div>
             <nav class="flex items-center gap-2 sm:gap-3 w-full md:w-auto overflow-x-auto no-scrollbar pb-1 sm:pb-0" aria-label="Main navigation">
+                <!-- App Control Utilities -->
+                <div class="flex items-center gap-1.5 border-r dark:border-gray-700 pr-3 mr-1 shrink-0">
+                    <button id="fullscreen-btn" class="p-2 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Toggle Fullscreen">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    </button>
+                    <button id="hard-reload-btn" class="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Hard Reload Application">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+
                 <button id="theme-toggle" class="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 border dark:border-gray-600 transition-colors hover:bg-gray-200 dark:hover:bg-gray-600 shrink-0" aria-label="Toggle dark mode">
                     <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
                     <svg id="theme-icon-light" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
@@ -81,9 +90,6 @@
                     Compare <span id="compareCount" class="hidden px-1.5 py-0.5 text-[10px] bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-full">0</span>
                 </button>
                 <button id="addCityBtn" class="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-700 text-white rounded-xl font-semibold shadow-lg hover:brightness-110 shrink-0">Add City</button>
-                <button id="refreshAllBtn" class="p-2 text-gray-400 hover:text-indigo-600 transition-colors shrink-0" aria-label="Refresh all cities">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                </button>
             </nav>
         </div>
     </header>

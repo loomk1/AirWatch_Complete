@@ -58,6 +58,10 @@ const viewGridBtn = document.getElementById('view-grid-btn')!;
 const viewMapBtn = document.getElementById('view-map-btn')!;
 const themeToggleBtn = document.getElementById('theme-toggle')!;
 
+// New Controls
+const fullscreenBtn = document.getElementById('fullscreen-btn')!;
+const hardReloadBtn = document.getElementById('hard-reload-btn')!;
+
 // Chart Instances
 let aqiChartInstance: any = null;
 let tempChartInstance: any = null;
@@ -178,7 +182,24 @@ async function init() {
 
 function setupEventListeners() {
   themeToggleBtn?.addEventListener('click', () => setTheme(!isDarkMode));
-  document.getElementById('refreshAllBtn')?.addEventListener('click', refreshAll);
+  
+  // App Level Controls
+  fullscreenBtn?.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+  });
+
+  hardReloadBtn?.addEventListener('click', () => {
+    if(confirm("Hard reload the application? Unsaved data will be lost.")) {
+        window.location.reload();
+    }
+  });
+
   document.getElementById('compareBtn')?.addEventListener('click', openCompareModal);
   document.getElementById('addCityBtn')?.addEventListener('click', openAddModal);
   document.getElementById('cancelAddBtn')?.addEventListener('click', closeAddModal);
