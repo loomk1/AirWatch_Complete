@@ -342,7 +342,7 @@ function render() {
   cardsContainer.innerHTML = '';
   const cities = Object.keys(cityData);
   if(cities.length === 0) {
-      cardsContainer.innerHTML = `<div class="col-span-full text-center py-20 text-gray-500">No cities added. Add a city to monitor.</div>`;
+      cardsContainer.innerHTML = `<div class="col-span-full text-center py-20 text-gray-500 font-medium">No cities added. Track a city to start.</div>`;
   } else {
       cities.forEach(city => {
           const data = cityData[city];
@@ -357,14 +357,14 @@ function createCardHTML(data: CityData) {
   const isSelected = selectedCities.has(data.name);
   const windLabel = getWindDir(data.windDeg);
   const forecastHTML = data.forecast.length > 0 ? `
-      <div class="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/50 mt-1">
-        <h4 class="text-[10px] font-bold tracking-widest text-gray-400 dark:text-gray-500 uppercase mb-3 pt-4">3-Day Forecast</h4>
-        <div class="grid grid-cols-3 gap-3">
+      <div class="px-5 sm:px-6 pb-5 sm:pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/50 mt-1">
+        <h4 class="text-[9px] font-bold tracking-widest text-gray-400 dark:text-gray-500 uppercase mb-3 pt-3">3-Day Forecast</h4>
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
           ${data.forecast.map(day => `
-             <div class="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-700/30">
-                <span class="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-tighter mb-1">${day.dayName}</span>
-                <img src="https://openweathermap.org/img/wn/${day.icon}@2x.png" alt="${day.description}" class="w-10 h-10">
-                <span class="text-sm font-bold text-gray-700 dark:text-gray-200">${day.temp}°</span>
+             <div class="flex flex-col items-center p-2 sm:p-3 rounded-2xl bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-700/30">
+                <span class="text-[9px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-tighter mb-1">${day.dayName}</span>
+                <img src="https://openweathermap.org/img/wn/${day.icon}@2x.png" alt="${day.description}" class="w-8 h-8 sm:w-10 sm:h-10">
+                <span class="text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200">${day.temp}°</span>
              </div>`).join('')}
         </div>
       </div>` : '';
@@ -372,43 +372,43 @@ function createCardHTML(data: CityData) {
   return `
   <section aria-labelledby="city-${data.id}" class="relative ${aqiInfo.bg} rounded-3xl shadow-card dark:shadow-card-dark hover:shadow-card-hover dark:hover:shadow-card-hover-dark transition-all duration-300 overflow-hidden group border border-gray-200 dark:border-gray-700/60">
       <div class="absolute top-0 left-0 w-full h-1.5 ${aqiInfo.barGradient}" aria-hidden="true"></div>
-      <div class="px-6 pt-6 pb-2 flex justify-between items-start relative z-10">
-          <div class="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 font-bold text-[10px] uppercase tracking-widest">
+      <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-2 flex justify-between items-start relative z-10">
+          <div class="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 font-bold text-[9px] uppercase tracking-widest">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
               <span>${data.country}</span>
           </div>
-          <div class="flex items-center gap-2">
-              <button onclick="window.viewHistory('${data.name}')" aria-label="View history trends for ${data.name}" class="text-[10px] font-bold uppercase tracking-tight bg-gray-100 dark:bg-gray-700 hover:bg-indigo-50 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 transition-colors">Trends</button>
-              <button onclick="window.refreshCity('${data.name}')" aria-label="Refresh data for ${data.name}" class="text-gray-300 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-white transition-colors p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
-              <button onclick="window.removeCity('${data.name}')" aria-label="Remove ${data.name}" class="text-gray-300 dark:text-gray-500 hover:text-red-500 transition-colors p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
-              <label class="flex items-center cursor-pointer ml-1">
-                <span class="sr-only">Select ${data.name} for comparison</span>
-                <input type="checkbox" onchange="window.toggleSelection('${data.name}', this.checked)" ${isSelected ? 'checked' : ''} class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-indigo-600 focus:ring-indigo-500">
+          <div class="flex items-center gap-1.5">
+              <button onclick="window.viewHistory('${data.name}')" class="p-2 text-gray-400 hover:text-indigo-600 transition-colors" aria-label="View history"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></button>
+              <button onclick="window.refreshCity('${data.name}')" class="p-2 text-gray-300 dark:text-gray-500 hover:text-indigo-600 transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
+              <button onclick="window.removeCity('${data.name}')" class="p-2 text-gray-300 dark:text-gray-500 hover:text-red-500 transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+              <label class="flex items-center cursor-pointer p-2 -mr-1">
+                <input type="checkbox" onchange="window.toggleSelection('${data.name}', this.checked)" ${isSelected ? 'checked' : ''} class="w-5 h-5 rounded border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-indigo-600 focus:ring-indigo-500">
               </label>
           </div>
       </div>
-      <div class="px-6 mb-4 relative z-10">
-        <h2 id="city-${data.id}" class="text-3xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight leading-none group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">${data.name}</h2>
+      <div class="px-5 sm:px-6 mb-4 sm:mb-6 relative z-10">
+        <h2 id="city-${data.id}" class="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight leading-tight group-hover:text-indigo-600 transition-colors">${data.name}</h2>
       </div>
-      <div class="px-6 pb-2 flex gap-6 relative z-10">
-          <div class="flex flex-col items-center justify-center">
-              <span class="text-[10px] font-bold tracking-widest text-gray-400 dark:text-gray-500 uppercase mb-3">Air Quality</span>
-              <div class="w-24 h-24 rounded-full border-[6px] ${aqiInfo.border} bg-gray-50 dark:bg-gray-800/80 backdrop-blur-sm flex items-center justify-center relative shadow-inner"><span class="text-3xl font-black text-gray-800 dark:text-gray-100">${data.aqi}</span></div>
-              <div class="mt-3 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${aqiInfo.pill}">${aqiInfo.label}</div>
-              <p class="mt-4 text-[11px] leading-tight font-medium text-gray-500 dark:text-gray-400 text-center max-w-[100px] italic">"${aqiInfo.advisory}"</p>
+      <div class="px-5 sm:px-6 pb-4 sm:pb-2 flex flex-col sm:flex-row gap-6 relative z-10">
+          <div class="flex sm:flex-col items-center justify-between sm:justify-center gap-4">
+              <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-[5px] sm:border-[6px] ${aqiInfo.border} bg-gray-50 dark:bg-gray-800/80 backdrop-blur-sm flex items-center justify-center relative shadow-inner"><span class="text-2xl sm:text-3xl font-black text-gray-800 dark:text-gray-100">${data.aqi}</span></div>
+              <div class="flex flex-col items-center sm:items-center text-right sm:text-center">
+                  <div class="mt-0 sm:mt-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${aqiInfo.pill}">${aqiInfo.label}</div>
+                  <p class="mt-2 text-[10px] leading-tight font-medium text-gray-500 dark:text-gray-400 max-w-[120px] italic hidden sm:block">"${aqiInfo.advisory}"</p>
+              </div>
           </div>
-          <div class="flex-1 flex flex-col gap-3 justify-center">
-              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
-                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-orange-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
-                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Temp</span><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.temp}°C</span></div>
+          <div class="flex-1 grid grid-cols-2 sm:flex sm:flex-col gap-2.5 sm:gap-3 justify-center">
+              <div class="flex items-center gap-2.5 p-2.5 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-8 h-8 rounded-lg bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-orange-500 shrink-0"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
+                  <div class="flex flex-col"><span class="text-[9px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter leading-none mb-1">Temp</span><span class="text-base font-bold text-gray-900 dark:text-gray-100 leading-none">${data.temp}°C</span></div>
               </div>
-              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
-                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-sky-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg></div>
-                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Humidity</span><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.humidity}%</span></div>
+              <div class="flex items-center gap-2.5 p-2.5 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-8 h-8 rounded-lg bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-sky-500 shrink-0"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg></div>
+                  <div class="flex flex-col"><span class="text-[9px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter leading-none mb-1">Humidity</span><span class="text-base font-bold text-gray-900 dark:text-gray-100 leading-none">${data.humidity}%</span></div>
               </div>
-              <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700/50">
-                  <div class="w-10 h-10 rounded-xl bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-teal-500 shrink-0" aria-hidden="true"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" /></svg></div>
-                  <div class="flex flex-col"><span class="text-[10px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter">Wind</span><div class="flex items-center gap-2"><span class="text-xl font-bold text-gray-900 dark:text-gray-100 leading-none">${data.windSpeed}<span class="text-xs ml-0.5 font-normal opacity-70">m/s</span></span><div class="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md border border-indigo-100/50 dark:border-indigo-700/30" aria-label="Wind direction: ${windLabel}"><svg class="w-3 h-3 text-indigo-500" style="transform: rotate(${data.windDeg}deg)" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg><span class="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter">${windLabel}</span></div></div></div>
+              <div class="col-span-2 flex items-center gap-2.5 p-2.5 bg-gray-50 dark:bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700/50">
+                  <div class="w-8 h-8 rounded-lg bg-white dark:bg-gray-700 shadow-sm flex items-center justify-center text-teal-500 shrink-0"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" /></svg></div>
+                  <div class="flex flex-col"><span class="text-[9px] text-gray-400 dark:text-gray-600 font-bold uppercase tracking-tighter leading-none mb-1">Wind</span><div class="flex items-center gap-2"><span class="text-base font-bold text-gray-900 dark:text-gray-100 leading-none">${data.windSpeed}<span class="text-xs ml-0.5 font-normal opacity-70">m/s</span></span><div class="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-lg border border-indigo-100/50 dark:border-indigo-700/30"><svg class="w-3 h-3 text-indigo-500" style="transform: rotate(${data.windDeg}deg)" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg><span class="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter">${windLabel}</span></div></div></div>
               </div>
           </div>
       </div>
@@ -432,7 +432,7 @@ function renderRecentSearches() {
     recentList.innerHTML = '';
     recentSearches.forEach(name => {
         const item = document.createElement('button');
-        item.className = "px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors dark:text-gray-300";
+        item.className = "px-4 py-3 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors dark:text-gray-300 font-medium";
         item.innerText = name;
         item.setAttribute('role', 'option');
         item.onclick = () => (window as any).selectRecent(name);
@@ -490,21 +490,21 @@ function buildCompareSummary() {
     const windiest = [...cities].sort((a,b) => b.windSpeed - a.windSpeed)[0];
     
     summaryContainer.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6 sm:mb-8">
             <div class="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800/30">
-                <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1">Cleanest Air</span>
-                <span class="text-lg font-black">${bestAQI.name}</span>
-                <span class="text-xs block text-emerald-600/70">AQI: ${bestAQI.aqi}</span>
+                <span class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1">Cleanest Air</span>
+                <span class="text-base sm:text-lg font-black block truncate">${bestAQI.name}</span>
+                <span class="text-[10px] block text-emerald-600/70">AQI: ${bestAQI.aqi}</span>
             </div>
             <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-800/30">
-                <span class="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Coolest City</span>
-                <span class="text-lg font-black">${coolest.name}</span>
-                <span class="text-xs block text-blue-600/70">Temp: ${coolest.temp}°C</span>
+                <span class="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Coolest City</span>
+                <span class="text-base sm:text-lg font-black block truncate">${coolest.name}</span>
+                <span class="text-[10px] block text-blue-600/70">Temp: ${coolest.temp}°C</span>
             </div>
             <div class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
-                <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block mb-1">High Wind</span>
-                <span class="text-lg font-black">${windiest.name}</span>
-                <span class="text-xs block text-indigo-600/70">${windiest.windSpeed} m/s</span>
+                <span class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block mb-1">High Wind</span>
+                <span class="text-base sm:text-lg font-black block truncate">${windiest.name}</span>
+                <span class="text-[10px] block text-indigo-600/70">${windiest.windSpeed} m/s</span>
             </div>
         </div>`;
 }
@@ -515,7 +515,7 @@ function buildCompareTable() {
     selectedCities.forEach(city => {
         const d = cityData[city]; if(!d) return;
         const info = getAqiInfo(d.aqi);
-        tbody.innerHTML += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.name}</td><td class="px-8 py-4 whitespace-nowrap"><span class="px-3 py-1 rounded-full text-xs font-black ${info.pill}">${d.aqi}</span></td><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.temp}°C</td><td class="px-8 py-4 whitespace-nowrap text-sm font-bold">${d.humidity}%</td><td class="px-8 py-4 whitespace-nowrap"><span class="${info.color} font-black uppercase tracking-tight">${info.label}</span></td></tr>`;
+        tbody.innerHTML += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"><td class="px-4 sm:px-8 py-4 whitespace-nowrap text-sm font-bold">${d.name}</td><td class="px-4 sm:px-8 py-4 whitespace-nowrap"><span class="px-3 py-1 rounded-full text-[10px] font-black ${info.pill}">${d.aqi}</span></td><td class="px-4 sm:px-8 py-4 whitespace-nowrap text-sm font-bold">${d.temp}°C</td><td class="px-4 sm:px-8 py-4 whitespace-nowrap text-sm font-bold">${d.humidity}%</td><td class="px-4 sm:px-8 py-4 whitespace-nowrap"><span class="${info.color} text-xs font-black uppercase tracking-tight">${info.label}</span></td></tr>`;
     });
 }
 
@@ -525,19 +525,13 @@ function buildCompareCharts() {
     const textColor = isDarkMode ? '#9ca3af' : '#1f2937';
     const gridColor = isDarkMode ? '#374151' : '#e5e7eb';
     
-    const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: textColor } }, y: { grid: { color: gridColor }, ticks: { color: textColor }, beginAtZero: true } } };
+    const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: textColor, font: { size: 10 } } }, y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 10 } }, beginAtZero: true } } };
 
     if (aqiChartInstance) aqiChartInstance.destroy();
-    aqiChartInstance = new Chart(document.getElementById('aqiChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.aqi), backgroundColor: cities.map(c => getAqiInfo(c.aqi).hex), borderRadius: 8 }] }, options: baseOpts });
+    aqiChartInstance = new Chart(document.getElementById('aqiChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.aqi), backgroundColor: cities.map(c => getAqiInfo(c.aqi).hex), borderRadius: 6 }] }, options: baseOpts });
 
     if (tempChartInstance) tempChartInstance.destroy();
-    tempChartInstance = new Chart(document.getElementById('tempChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.temp), backgroundColor: '#f97316', borderRadius: 8 }] }, options: baseOpts });
-
-    if (humChartInstance) humChartInstance.destroy();
-    humChartInstance = new Chart(document.getElementById('humChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.humidity), backgroundColor: '#0ea5e9', borderRadius: 8 }] }, options: baseOpts });
-
-    if (windChartInstance) windChartInstance.destroy();
-    windChartInstance = new Chart(document.getElementById('windChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.windSpeed), backgroundColor: '#14b8a6', borderRadius: 8 }] }, options: baseOpts });
+    tempChartInstance = new Chart(document.getElementById('tempChart'), { type: 'bar', data: { labels, datasets: [{ data: cities.map(c => c.temp), backgroundColor: '#f97316', borderRadius: 6 }] }, options: baseOpts });
 
     if (radarChartInstance) radarChartInstance.destroy();
     const radarColors = ['rgba(99, 102, 241, 0.4)', 'rgba(236, 72, 153, 0.4)', 'rgba(16, 185, 129, 0.4)'];
@@ -549,7 +543,7 @@ function buildCompareCharts() {
             labels: ['AQI (norm)', 'Temp (x2)', 'Humidity', 'Wind (x10)'],
             datasets: cities.map((c, i) => ({ label: c.name, data: [c.aqi / 2, c.temp * 2, c.humidity, c.windSpeed * 10], backgroundColor: radarColors[i % 3], borderColor: radarBorders[i % 3], pointBackgroundColor: radarBorders[i % 3], borderWidth: 2 }))
         },
-        options: { responsive: true, maintainAspectRatio: false, scales: { r: { grid: { color: gridColor }, angleLines: { color: gridColor }, pointLabels: { color: textColor, font: { weight: 'bold' } }, ticks: { display: false } } }, plugins: { legend: { display: true, position: 'bottom', labels: { color: textColor, usePointStyle: true } } } }
+        options: { responsive: true, maintainAspectRatio: false, scales: { r: { grid: { color: gridColor }, angleLines: { color: gridColor }, pointLabels: { color: textColor, font: { weight: 'bold', size: 9 } }, ticks: { display: false } } }, plugins: { legend: { display: true, position: 'bottom', labels: { color: textColor, usePointStyle: true, boxWidth: 6, font: { size: 10 } } } } }
     });
 }
 
@@ -570,10 +564,10 @@ async function buildHistoryChart() {
             const data = await safeFetch(`https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${city.lat}&lon=${city.lon}&start=${start}&end=${Math.floor(Date.now()/1000)}&appid=${OPENWEATHER_API_KEY}`);
             const dailyMap = new Map();
             data.list.forEach((it: any) => { const k = new Date(it.dt * 1000).toDateString(); if(!dailyMap.has(k)) dailyMap.set(k, {sum: 0, count: 0}); dailyMap.get(k).sum += pm25ToAQI(it.components.pm2_5); dailyMap.get(k).count++; });
-            datasets.push({ label: name, data: Array.from(dailyMap.values()).map(v => Math.round(v.sum/v.count)).slice(-7), borderColor: colors[idx++ % 5], tension: 0.3, fill: false });
+            datasets.push({ label: name, data: Array.from(dailyMap.values()).map(v => Math.round(v.sum/v.count)).slice(-7), borderColor: colors[idx++ % 5], tension: 0.3, fill: false, borderWidth: 2 });
         } catch (e) {}
     }
-    historyChartInstance = new Chart(document.getElementById('historyChart'), { type: 'line', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false } });
+    historyChartInstance = new Chart(document.getElementById('historyChart'), { type: 'line', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 6, font: { size: 10 } } } } } });
     loading.classList.add('hidden');
 }
 
@@ -598,7 +592,7 @@ function renderCityHistoryChart(rawData: any[]) {
     const daily = new Map<string, { sum: number, count: number, date: Date }>();
     rawData.forEach(it => { const d = new Date(it.dt * 1000); const k = d.toDateString(); if (!daily.has(k)) daily.set(k, { sum: 0, count: 0, date: d }); daily.get(k)!.sum += pm25ToAQI(it.components.pm2_5); daily.get(k)!.count++; });
     const sorted = Array.from(daily.keys()).sort((a,b) => daily.get(a)!.date.getTime() - daily.get(b)!.date.getTime());
-    cityHistoryChartInstance = new Chart(document.getElementById('cityHistoryChart'), { type: 'line', data: { labels: sorted.map(k => daily.get(k)!.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), datasets: [{ label: 'AQI', data: sorted.map(k => Math.round(daily.get(k)!.sum/daily.get(k)!.count)), borderColor: '#6366f1', tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false } });
+    cityHistoryChartInstance = new Chart(document.getElementById('cityHistoryChart'), { type: 'line', data: { labels: sorted.map(k => daily.get(k)!.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), datasets: [{ label: 'Daily Avg AQI', data: sorted.map(k => Math.round(daily.get(k)!.sum/daily.get(k)!.count)), borderColor: '#6366f1', tension: 0.3, fill: true, backgroundColor: 'rgba(99, 102, 241, 0.1)' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
 }
 
 async function generateAIInsights() {
@@ -614,9 +608,9 @@ async function generateAIInsights() {
     }));
     try {
         const aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const res = await aiClient.models.generateContent({ model: 'gemini-3-flash-preview', contents: `Compare air quality for these cities: ${JSON.stringify(stats.filter(Boolean))}. Use HTML h3, p, ul tags.` });
+        const res = await aiClient.models.generateContent({ model: 'gemini-3-flash-preview', contents: `Act as a health advisor. Compare air quality for these cities: ${JSON.stringify(stats.filter(Boolean))}. Use HTML h3, p, ul tags. Keep it concise for mobile users.` });
         aiContentBody.innerHTML = res.text || 'No response.';
-    } catch (e) { aiContentBody.innerHTML = '<p class="text-red-500">AI unavailable.</p>'; }
+    } catch (e) { aiContentBody.innerHTML = '<p class="text-red-500">AI analysis unavailable.</p>'; }
     aiLoadingDiv.classList.add('hidden'); aiResultDiv.classList.remove('hidden');
 }
 
